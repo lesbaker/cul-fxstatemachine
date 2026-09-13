@@ -75,6 +75,11 @@ let JUMP = -2.2
 let GAP = 40
 let PLAYER_X = 70
 let PLAYER_START_Y = 40
+# Rocci's bounding box is shrunk slightly on all sides to prevent spurious
+# hits from non-player pixels in the box (and because it's better to err
+# on the side of the player when one hit ends the game).
+let PLAYER_BB_SHRINK_W = 4
+let PLAYER_BB_SHRINK_H = 4
 let GROUND_Y = H - 13  # 147
 let PLANT_Y = H - 22   # 138
 let PLANT_TYPES = 30
@@ -200,30 +205,32 @@ let hiscore_anim = |fc| Anim(
   AnimState.Loop,
 )
 
-# --- collision (pixel readback at the original's sample points) ------------
-# A point counts as a hit when the framebuffer there is not the background
-# colour C1. This must run after the world is drawn but before the player.
-let BASE_POINTS = [
-  [11, 2],
-  [13, 3],
-  [3, 5],
-  [11, 6],
-  [9, 8],
-  [5, 9],
-  [7, 10],
-  [5, 12],
-]
-let hit_at = |px, py| Canvas.get_pixel(px, py) != C1
-
-let collided = fn (player_y, anim_index) {
-  return hit_at(PLAYER_X + 13, 0) if player_y < -1
-  # The wing sweeps through a different cell on each frame of the flap.
-  let wing = cond {
-    anim_index == 2 => [[2, 1], [7, 1]],
-    anim_index == 1 => [[2, 2]],
-    _ => [],
+# --- collision handling ---
+# A hit occurs when Rocci's bounding box intersects with any of the pipe
+# bounding boxes. As documented above, we shrink Rocci's box a bit on both axes.
+let collided = fn (player_y, pipe_bboxes) {
+  let rocci_bbox = {
+    x: PLAYER_X + PLAYER_BB_SHRINK_W,
+    y: player_y + PLAYER_BB_SHRINK_H,
+    w: 16 - 2 * PLAYER_BB_SHRINK_W,
+    h: 16 - 2 * PLAYER_BB_SHRINK_H,
   }
-  [...BASE_POINTS, ...wing].any(|[dx, dy]| hit_at(PLAYER_X + dx, player_y + dy))
+  let rocci_overlap = |x, y, w, h| Canvas.rect_overlap(
+    x1: x,
+    y1: y,
+    w1: w,
+    h1: h,
+    x2: rocci_bbox.x,
+    y2: rocci_bbox.y,
+    w2: rocci_bbox.w,
+    h2: rocci_bbox.h,
+  )
+
+  # Uncomment the two lines below to highlight all bounding boxes w/ red square
+  # Canvas.rect(rocci_bbox.x, rocci_bbox.y, rocci_bbox.w, rocci_bbox.h, Canvas.rgba(255, 0, 0), fill: false)
+  # pipe_bboxes.for_each(|bb| Canvas.rect(bb.x, bb.y, bb.w, bb.h, Canvas.rgba(255, 0, 0), fill: false))
+
+  pipe_bboxes.any(|bbox| rocci_overlap(**bbox))
 }
 
 # --- drawing helpers -------------------------------------------------------
@@ -457,9 +464,14 @@ class App {
     draw_ground(self.ground_x)
     draw_plants(self.plants)
 
-    let y_pixel = Math.min(self.player_y.to_long(), 134)
-    let hit = collided(y_pixel, self.rocci.index)
-    self.rocci.draw(PLAYER_X, y_pixel)
+    let pipe_bboxes = self.pipes.flat_map(
+      |p| [{x: p.x, y: p.gap_start - 160, w: 20, h: 160}, {x: p.x, y: p.gap_start + GAP, w: 20, h: 160}]
+    )
+    # If the player tries to cheese the game by flying out-of-bounds,
+    # we keep the collision box pinned to the top of the screen
+    let coll_y = Math.clamp(self.player_y.to_long(), 0, 134)
+    let hit = collided(coll_y, pipe_bboxes)
+    self.rocci.draw(PLAYER_X, self.player_y)
     draw_score(self.score, 68, 4)
 
     self.enter_over() if hit || self.player_y >= 134.0
