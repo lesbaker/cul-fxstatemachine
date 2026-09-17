@@ -84,44 +84,54 @@ let GROUND_Y = H - 13  # 147
 let PLANT_Y = H - 22   # 138
 let PLANT_TYPES = 30
 
+effect fn play_sound(sound_name: String)
+effect fn draw_player(rocci: Object)
+effect fn draw_background(ground: Long, plants: Array)
+effect fn draw_pipes(pipes: Array)
+effect fn draw_title_text()
+effect fn draw_game_info(score: Long)
+effect fn draw_game_over_info(score: Long, high_score: Long, new_high: Bool, hiscore: Object)
+
 # --- tones (exact WASM-4 parameters) ---------------------------------------
 # tone(freq, sustain, vol, wave, end_freq, attack, decay, release, peak, duty)
-let flap_tone = || Canvas.tone(
-  700,
-  0,
-  10,
-  Canvas.PULSE,
-  870,
-  10,
-  5,
-  3,
-  20,
-  Canvas.DUTY_QUARTER,
-)
-let point_tone = || Canvas.tone(
-  995,
-  0,
-  25,
-  Canvas.PULSE2,
-  1000,
-  0,
-  10,
-  10,
-  75,
-  Canvas.DUTY_HALF,
-)
-let death_tone = || Canvas.tone(
-  170,
-  20,
-  100,
-  Canvas.NOISE,
-  40,
-  0,
-  40,
-  0,
-  0,
-  Canvas.DUTY_HALF,
-)
+let sounds = {
+  "flap": {
+    "freq": 700,
+    "dur": 0,
+    "vol": 10,
+    "wave": Canvas.PULSE,
+    "end_freq": 870,
+    "attack": 10,
+    "decay": 5,
+    "release": 3,
+    "peak": 20,
+    "duty": Canvas.DUTY_QUARTER,
+  },
+  "point": {
+    "freq": 995,
+    "dur": 0,
+    "vol": 25,
+    "wave": Canvas.PULSE2,
+    "end_freq": 1000,
+    "attack": 0,
+    "decay": 10,
+    "release": 10,
+    "peak": 75,
+    "duty": Canvas.DUTY_HALF,
+  },
+  "death": {
+    "freq": 170,
+    "dur": 20,
+    "vol": 100,
+    "wave": Canvas.NOISE,
+    "end_freq": 40,
+    "attack": 0,
+    "decay": 40,
+    "release": 0,
+    "peak": 0,
+    "duty": Canvas.DUTY_HALF,
+  },
+}
 
 # --- animation -------------------------------------------------------------
 # cells is a list of [frames, src_x]; every frame is `sw`x16 on `sheet`.
@@ -166,9 +176,6 @@ class Anim {
         self.last_updated = fc
       },
     }
-  }
-  draw(x, y) {
-    self.sheet.draw_sub(x, y, self.cells[self.index][1], 0, self.sw, 16)
   }
 }
 
@@ -242,12 +249,6 @@ let draw_ground = fn (x) {
 let draw_plants = fn (plants) {
   for {x, type} in plants {
     plant_sheet.draw_sub(x, PLANT_Y, type * 12, 0, 12, 12)
-  }
-}
-let draw_pipes = fn (pipes) {
-  for {x, gap_start} in pipes {
-    pipe_sprite.draw(x, gap_start - H, false, true)  # top pipe, flipped vertically
-    pipe_sprite.draw(x, gap_start + GAP)             # bottom pipe
   }
 }
 let draw_score = fn (score, base_x, y) {
@@ -345,7 +346,7 @@ class App {
     self.last_flap = true
     self.rocci = flap_anim(self.fc)
     self.ground_x = 0
-    flap_tone()
+    perform play_sound("flap")
   }
 
   enter_over() {
@@ -355,7 +356,7 @@ class App {
     save_high_score(self.high_score) if self.new_high
     self.rocci = fall_anim(self.fc)
     self.hiscore = hiscore_anim(self.fc)
-    death_tone()
+    perform play_sound("death")
   }
 
   # The "flap / start" action: A, up, or left-click held this frame.
@@ -384,17 +385,63 @@ class App {
   }
 
   tick() {
-    # Esc is an ordinary key, not a built-in quit -- ask for one explicitly.
-    Canvas.quit() if Canvas.key('escape')
+    handle {
+      # Esc is an ordinary key, not a built-in quit -- ask for one explicitly.
+      Canvas.quit() if Canvas.key('escape')
 
-    Canvas.clear(C1)
-    self.input.update()
-    self.fc += 1
-    match self.mode {
-      m: Title => self.tick_title(),
-      m: Game => self.tick_game(),
-      m: Over => self.tick_over(),
+      Canvas.clear(C1)
+      self.input.update()
+      self.fc += 1
+      match self.mode {
+        m: Title => self.tick_title(),
+        m: Game => self.tick_game(),
+        m: Over => self.tick_over(),
+      }
+    } with play_sound(sound_name, resume) {
+      sound_args = sounds[sound_name]
+      Canvas.tone(**sound_args)
+
+      resume()
+    } with draw_player(rocci, draw_y, resume) {
+      rocci.sheet.draw_sub(PLAYER_X, draw_y, rocci.cells[rocci.index][1], 0, rocci.sw, 16)
+
+      resume()
+    } with draw_background(ground, plants, resume) {
+      draw_ground(ground)
+      draw_plants(plants)
+
+      resume()
+    } with draw_pipes(pipes, resume) {
+      for {x, gap_start} in pipes {
+        pipe_sprite.draw(x, gap_start - H, false, true)  # top pipe, flipped vertically
+        pipe_sprite.draw(x, gap_start + GAP)             # bottom pipe
+      }
+
+      resume()
+    } with draw_title_text(resume) {
+      Canvas.text("Rocci Bird!!!", 32, 12, C4)
+      Canvas.text("Click to start!", 24, 72, C4)
+
+      resume()
+    } with draw_game_info(score, resume) {
+      draw_score(score, 68, 4)
+
+      resume()
+    } with draw_game_over_info(score, high_score, new_high, hiscore, resume) {
+      Canvas.rect(16, 52, 136, 32, C1)
+      Canvas.text("Game Over!", 44, 56, C4)
+      Canvas.text("Right to restart", 20, 72, C4)
+      Canvas.text("Art by Luke DeVault", 4, 151, C4)
+      Canvas.rect(66, 2, 28, 12, C1)
+      draw_score(self.score, 68, 4)
+      self.hiscore.draw(64, 0) if self.new_high
+      Canvas.rect(54, 18, 52, 12, C1)
+      Canvas.text("HS:", 57, 20, C4)
+      draw_score(self.high_score, 80, 20)
+
+      resume()
     }
+
     true
   }
 
@@ -418,18 +465,16 @@ class App {
 
   tick_title() {
     self.rocci.update(self.fc)
-    Canvas.text("Rocci Bird!!!", 32, 12, C4)
-    Canvas.text("Click to start!", 24, 72, C4)
-    draw_ground(0)
-    draw_plants(self.plants)
-    self.rocci.draw(PLAYER_X, PLAYER_START_Y + self.idle_shift())
+    perform draw_title_text()
+    perform draw_background(0, self.plants)
+    perform draw_player(self.rocci, PLAYER_START_Y + self.idle_shift())
     self.enter_game() if self.start_input()
   }
 
   tick_game() {
     let flap = self.flap_input()
     if !self.last_flap && flap && self.flap_allowed() {
-      flap_tone()
+      perform play_sound("flap")
       self.player_vel = JUMP
       self.rocci.reset(self.fc, 0, AnimState.RunOnce)
     } else {
@@ -458,11 +503,10 @@ class App {
     self.score = Math.min(self.score + gained, 255)
     self.max_score = Math.max(self.score, self.max_score)
     self.ground_x = (self.ground_x - 1) % W
-    point_tone() if gained > 0
+    perform play_sound("point") if gained > 0
 
-    draw_pipes(self.pipes)
-    draw_ground(self.ground_x)
-    draw_plants(self.plants)
+    perform draw_pipes(self.pipes)
+    perform draw_background(self.ground_x, self.plants)
 
     let pipe_bboxes = self.pipes.flat_map(
       |p| [{x: p.x, y: p.gap_start - 160, w: 20, h: 160}, {x: p.x, y: p.gap_start + GAP, w: 20, h: 160}]
@@ -471,8 +515,8 @@ class App {
     # we keep the collision box pinned to the top of the screen
     let coll_y = Math.clamp(self.player_y.to_long(), 0, 134)
     let hit = collided(coll_y, pipe_bboxes)
-    self.rocci.draw(PLAYER_X, self.player_y)
-    draw_score(self.score, 68, 4)
+    perform draw_player(self.rocci, self.player_y)
+    perform draw_game_info(self.score)
 
     self.enter_over() if hit || self.player_y >= 134.0
   }
@@ -483,21 +527,11 @@ class App {
     self.hiscore.update(self.fc)
     self.player_y = Math.min(self.player_y + self.player_vel, 134.0)
 
-    draw_pipes(self.pipes)
-    draw_ground(self.ground_x)
-    draw_plants(self.plants)
-    self.rocci.draw(PLAYER_X, self.player_y.to_long())
+    perform draw_pipes(self.pipes)
+    perform draw_background(self.ground_x, self.plants)
+    perform draw_player(self.rocci, self.player_y.to_long())
 
-    Canvas.rect(16, 52, 136, 32, C1)
-    Canvas.text("Game Over!", 44, 56, C4)
-    Canvas.text("Right to restart", 20, 72, C4)
-    Canvas.text("Art by Luke DeVault", 4, 151, C4)
-    Canvas.rect(66, 2, 28, 12, C1)
-    draw_score(self.score, 68, 4)
-    self.hiscore.draw(64, 0) if self.new_high
-    Canvas.rect(54, 18, 52, 12, C1)
-    Canvas.text("HS:", 57, 20, C4)
-    draw_score(self.high_score, 80, 20)
+    perform draw_game_over_info(self.score, self.high_score, self.new_high, self.hiscore)
 
     self.enter_title() if self.restart_input()
   }
