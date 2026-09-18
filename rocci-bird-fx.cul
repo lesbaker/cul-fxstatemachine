@@ -289,36 +289,15 @@ let save_high_score = fn (score) {
 
 # --- app -------------------------------------------------------------------
 enum Mode {
+  Initial,
   Title,
   Game,
   Over,
 }
 
 class App {
-  # Session state, alive across restarts.
-  interactive = IO.stdin_is_terminal()
-  input = Canvas.Input()
-  high_score = load_high_score()
-  fc = 0
-  # Per-mode state, owned by the enter_* transitions below.
-  mode: Mode
-  rocci: Anim
-  hiscore = hiscore_anim(0)
-  plants = []
-  pipes = []
-  score = 0
-  max_score = 0
-  player_y = 0.0
-  player_vel = 0.0
-  last_pipe = 0
-  last_plant = 0
-  last_flap = true
-  new_high = false
-  ground_x = 0
-
   new() {
-    Random.seed(self.fc)
-    self.enter_title()
+    self.mode = Mode.Initial
   }
 
   starting_plants() {
@@ -390,13 +369,16 @@ class App {
       Canvas.quit() if Canvas.key('escape')
 
       Canvas.clear(C1)
-      self.input.update()
-      self.fc += 1
+
       match self.mode {
+        m: Initial => self.tick_initial(),
         m: Title => self.tick_title(),
         m: Game => self.tick_game(),
         m: Over => self.tick_over(),
       }
+
+      self.input.update()
+      self.fc += 1
     } with play_sound(sound_name, resume) {
       sound_args = sounds[sound_name]
       Canvas.tone(**sound_args)
@@ -461,6 +443,31 @@ class App {
       a.index == 1 => self.fc - a.last_updated > 6,
       _ => false,
     }
+  }
+
+  tick_initial() {
+    # Session state, alive across restarts.
+    self.interactive = IO.stdin_is_terminal()
+    self.input = Canvas.Input()
+    self.high_score = load_high_score()
+    self.fc = 0
+    # Per-mode state
+    self.rocci = Anim
+    self.hiscore = hiscore_anim(0)
+    self.plants = []
+    self.pipes = []
+    self.score = 0
+    self.max_score = 0
+    self.player_y = 0.0
+    self.player_vel = 0.0
+    self.last_pipe = 0
+    self.last_plant = 0
+    self.last_flap = true
+    self.new_high = false
+    self.ground_x = 0
+    Random.seed(self.fc)
+
+    self.enter_title()
   }
 
   tick_title() {
