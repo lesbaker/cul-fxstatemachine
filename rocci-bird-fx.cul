@@ -84,6 +84,7 @@ let GROUND_Y = H - 13  # 147
 let PLANT_Y = H - 22   # 138
 let PLANT_TYPES = 30
 
+effect fn seed_prng(seed: Long)
 effect fn play_sound(sound_name: String)
 effect fn draw_player(rocci: Object)
 effect fn draw_background(ground: Long, plants: Array)
@@ -316,7 +317,7 @@ class App {
     self.mode = Mode.Game
     # The original reseeds from the frame count at the moment play begins, so
     # the run feels randomly seeded (players rarely start on the same frame).
-    Random.seed(self.fc)
+    perform seed_prng(self.fc)
     self.score = 0
     self.max_score = 0
     self.player_y = to_float(PLAYER_START_Y)
@@ -381,6 +382,10 @@ class App {
 
       self.input.update()
       self.fc += 1
+    } with seed_prng(seed, resume) {
+      Random.seed(seed)
+
+      resume()
     } with play_sound(sound_name, resume) {
       sound_args = sounds[sound_name]
       Canvas.tone(**sound_args)
@@ -473,7 +478,7 @@ class App {
     self.last_flap = true
     self.new_high = false
     self.ground_x = 0
-    Random.seed(self.fc)
+    perform seed_prng(0)
 
     self.enter_title()
   }
