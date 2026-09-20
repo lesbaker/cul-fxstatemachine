@@ -296,6 +296,7 @@ enum Mode {
   Title,
   Game,
   Over,
+  Final, # entering this state closes the app
 }
 
 class App {
@@ -341,6 +342,10 @@ class App {
     perform play_sound("death")
   }
 
+  enter_final() {
+    Canvas.quit()
+  }
+
   # The "flap / start" action: A, up, or left-click held this frame.
   action_held() {
     let m = Canvas.mouse()
@@ -368,9 +373,6 @@ class App {
 
   tick() {
     handle {
-      # Esc is an ordinary key, not a built-in quit -- ask for one explicitly.
-      Canvas.quit() if Canvas.key('escape')
-
       Canvas.clear(C1)
 
       match self.mode {
@@ -488,6 +490,8 @@ class App {
     perform draw_title_text()
     perform draw_background(0, self.plants)
     perform draw_player(self.rocci, PLAYER_START_Y + self.idle_shift())
+
+    self.enter_final() if Canvas.key('escape')
     self.enter_game() if self.start_input()
   }
 
@@ -538,6 +542,7 @@ class App {
     perform draw_player(self.rocci, self.player_y)
     perform draw_game_info(self.score)
 
+    self.enter_final() if Canvas.key('escape')
     self.enter_over() if hit || self.player_y >= 134.0
   }
 
@@ -553,6 +558,7 @@ class App {
 
     perform draw_game_over_info(self.score, self.high_score, self.new_high, self.hiscore)
 
+    self.enter_final() if Canvas.key('escape')
     self.enter_title() if self.restart_input()
   }
 }
