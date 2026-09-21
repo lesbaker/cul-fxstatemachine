@@ -85,6 +85,7 @@ let PLANT_Y = H - 22   # 138
 let PLANT_TYPES = 30
 
 effect fn seed_prng(seed: Long)
+effect fn clear_screen(color: Object)
 effect fn play_sound(sound_name: String)
 effect fn draw_player(rocci: Object)
 effect fn draw_background(ground: Long, plants: Array)
@@ -389,8 +390,6 @@ class App {
 
   tick() {
     handle {
-      Canvas.clear(C1)
-
       match self.mode {
         m: Initial => self.tick_initial(),
         m: Title => self.tick_title(),
@@ -402,6 +401,10 @@ class App {
       self.fc += 1
     } with seed_prng(seed, resume) {
       Random.seed(seed)
+
+      resume()
+    } with clear_screen(color, resume) {
+      Canvas.clear(color)
 
       resume()
     } with play_sound(sound_name, resume) {
@@ -484,6 +487,8 @@ class App {
   }
 
   tick_title() {
+    perform clear_screen(C1)
+
     self.rocci.update(self.fc)
     perform draw_title_text()
     perform draw_background(0, self.plants)
@@ -494,6 +499,8 @@ class App {
   }
 
   tick_game() {
+    perform clear_screen(C1)
+
     let flap = self.flap_input()
     if !self.last_flap && flap && flap_allowed(self.rocci, self.fc) {
       perform play_sound("flap")
@@ -545,6 +552,8 @@ class App {
   }
 
   tick_over() {
+    perform clear_screen(C1)
+
     self.player_vel += GRAVITY
     self.rocci.update(self.fc)
     self.hiscore.update(self.fc)
