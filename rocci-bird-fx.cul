@@ -290,6 +290,22 @@ let save_high_score_to_file = fn (score) {
   }
 }
 
+let idle_shift = fn (rocci: Anim, fc: Long) -> Long {
+  cond {
+    rocci.index == 2 => 0,
+    rocci.index == 1 && fc - rocci.last_updated > 3 => 0,
+    _ => 1,
+  }
+}
+
+let flap_allowed = fn (rocci: Anim, fc: Long) -> Bool {
+  cond {
+    rocci.index == 2 => true,
+    rocci.index == 1 => fc - rocci.last_updated > 6,
+    _ => false,
+  }
+}
+
 # --- app -------------------------------------------------------------------
 enum Mode {
   Initial,
@@ -442,24 +458,6 @@ class App {
     true
   }
 
-  idle_shift() {
-    let a = self.rocci
-    cond {
-      a.index == 2 => 0,
-      a.index == 1 && self.fc - a.last_updated > 3 => 0,
-      _ => 1,
-    }
-  }
-
-  flap_allowed() {
-    let a = self.rocci
-    cond {
-      a.index == 2 => true,
-      a.index == 1 => self.fc - a.last_updated > 6,
-      _ => false,
-    }
-  }
-
   tick_initial() {
     # Session state, alive across restarts.
     self.interactive = IO.stdin_is_terminal()
@@ -489,7 +487,7 @@ class App {
     self.rocci.update(self.fc)
     perform draw_title_text()
     perform draw_background(0, self.plants)
-    perform draw_player(self.rocci, PLAYER_START_Y + self.idle_shift())
+    perform draw_player(self.rocci, PLAYER_START_Y + idle_shift(self.rocci, self.fc))
 
     self.enter_final() if Canvas.key('escape')
     self.enter_game() if self.start_input()
@@ -497,7 +495,7 @@ class App {
 
   tick_game() {
     let flap = self.flap_input()
-    if !self.last_flap && flap && self.flap_allowed() {
+    if !self.last_flap && flap && flap_allowed(self.rocci, self.fc) {
       perform play_sound("flap")
       self.player_vel = JUMP
       self.rocci.reset(self.fc, 0, AnimState.RunOnce)
