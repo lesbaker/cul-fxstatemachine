@@ -310,6 +310,11 @@ let flap_allowed = fn (rocci: Anim, fc: Long) -> Bool {
   }
 }
 
+let update_session = fn (s: Object) {
+  s.input.update()
+  s.fc += 1
+}
+
 # --- app -------------------------------------------------------------------
 enum Mode {
   Initial,
@@ -331,34 +336,34 @@ class App {
   enter_title() {
     self.mode = Mode.Title
     self.plants = self.starting_plants()
-    self.rocci = idle_anim(self.fc)
+    self.rocci = idle_anim(self.session.fc)
   }
 
   enter_game() {
     self.mode = Mode.Game
     # The original reseeds from the frame count at the moment play begins, so
     # the run feels randomly seeded (players rarely start on the same frame).
-    perform seed_prng(self.fc)
+    perform seed_prng(self.session.fc)
     self.score = 0
     self.max_score = 0
     self.player_y = to_float(PLAYER_START_Y)
     self.player_vel = JUMP
     self.pipes = []
-    self.last_pipe = self.fc
-    self.last_plant = Math.max(self.fc - 4, 0)
+    self.last_pipe = self.session.fc
+    self.last_plant = Math.max(self.session.fc - 4, 0)
     self.last_flap = true
-    self.rocci = flap_anim(self.fc)
+    self.rocci = flap_anim(self.session.fc)
     self.ground_x = 0
     perform play_sound("flap")
   }
 
   enter_over() {
     self.mode = Mode.Over
-    self.new_high = self.max_score > self.high_score
-    self.high_score = self.max_score if self.new_high
-    perform save_high_score(self.high_score) if self.new_high
-    self.rocci = fall_anim(self.fc)
-    self.hiscore = hiscore_anim(self.fc)
+    self.new_high = self.max_score > self.session.high_score
+    self.session.high_score = self.max_score if self.new_high
+    perform save_high_score(self.session.high_score) if self.new_high
+    self.rocci = fall_anim(self.session.fc)
+    self.hiscore = hiscore_anim(self.session.fc)
     perform play_sound("death")
   }
 
@@ -369,25 +374,25 @@ class App {
   # The "flap / start" action: A, up, or left-click held this frame.
   action_held() {
     let m = Canvas.mouse()
-    self.input.down(Canvas.A) ||
-      self.input.down(Canvas.UP) ||
+    self.session.input.down(Canvas.A) ||
+      self.session.input.down(Canvas.UP) ||
       m.buttons & 1 != 0
   }
   # In-game flap and title start read the action, with a simple autopilot when
   # input is not interactive so a CI / headless run still plays the game.
   flap_input() {
-    self.interactive
+    self.session.interactive
       ? self.action_held()
       : self.player_vel > 0.0 && self.player_y > 70.0
   }
   start_input() {
-    self.interactive ? self.action_held() : true
+    self.session.interactive ? self.action_held() : true
   }
   restart_input() {
-    return true if !self.interactive
+    return true if !self.session.interactive
     let m = Canvas.mouse()
-    self.input.down(Canvas.B) ||
-      self.input.down(Canvas.RIGHT) ||
+    self.session.input.down(Canvas.B) ||
+      self.session.input.down(Canvas.RIGHT) ||
       m.buttons & 2 != 0
   }
 
@@ -399,9 +404,6 @@ class App {
         m: Game => self.tick_game(),
         m: Over => self.tick_over(),
       }
-
-      self.input.update()
-      self.fc += 1
     } with seed_prng(seed, resume) {
       Random.seed(seed)
 
@@ -466,10 +468,12 @@ class App {
 
   tick_initial() {
     # Session state, alive across restarts.
-    self.interactive = IO.stdin_is_terminal()
-    self.input = Canvas.Input()
-    self.high_score = perform load_high_score()
-    self.fc = 0
+    self.session = {
+      interactive: IO.stdin_is_terminal(),
+      input: Canvas.Input(),
+      mut high_score: perform load_high_score(),
+      mut fc: 0,
+    }
     # Per-mode state
     self.rocci = Anim
     self.hiscore = hiscore_anim(0)
@@ -490,44 +494,46 @@ class App {
   }
 
   tick_title() {
+    update_session(self.session)
     perform clear_screen(C1)
 
-    self.rocci.update(self.fc)
+    self.rocci.update(self.session.fc)
     perform draw_title_text()
     perform draw_background(0, self.plants)
-    perform draw_player(self.rocci, PLAYER_START_Y + idle_shift(self.rocci, self.fc))
+    perform draw_player(self.rocci, PLAYER_START_Y + idle_shift(self.rocci, self.session.fc))
 
     self.enter_final() if Canvas.key('escape')
     self.enter_game() if self.start_input()
   }
 
   tick_game() {
+    update_session(self.session)
     perform clear_screen(C1)
 
     let flap = self.flap_input()
-    if !self.last_flap && flap && flap_allowed(self.rocci, self.fc) {
+    if !self.last_flap && flap && flap_allowed(self.rocci, self.session.fc) {
       perform play_sound("flap")
       self.player_vel = JUMP
-      self.rocci.reset(self.fc, 0, AnimState.RunOnce)
+      self.rocci.reset(self.session.fc, 0, AnimState.RunOnce)
     } else {
       self.player_vel += GRAVITY
-      self.rocci.update(self.fc)
+      self.rocci.update(self.session.fc)
     }
     self.last_flap = flap
 
     # pipes: spawn, move (scoring when a pipe crosses PLAYER_X - 2), cull
-    if self.fc - self.last_pipe > 90 {
+    if self.session.fc - self.last_pipe > 90 {
       self.pipes.push({x: W, gap_start: Random.int(0, 16) * 5 + 10})
-      self.last_pipe = self.fc
+      self.last_pipe = self.session.fc
     }
     let moved_pipes = self.pipes.map(shift_left)
     let gained = moved_pipes.filter(|p| p.x == PLAYER_X - 2).size()
     self.pipes = moved_pipes.filter(|p| p.x >= -20)
 
     # plants: spawn, move, cull
-    if self.fc - self.last_plant > 12 {
+    if self.session.fc - self.last_plant > 12 {
       self.plants.push({x: W, type: Random.int(0, PLANT_TYPES)})
-      self.last_plant = self.fc
+      self.last_plant = self.session.fc
     }
     self.plants = self.plants.map(shift_left).filter(|p| p.x >= -12)
 
@@ -555,18 +561,19 @@ class App {
   }
 
   tick_over() {
+    update_session(self.session)
     perform clear_screen(C1)
 
     self.player_vel += GRAVITY
-    self.rocci.update(self.fc)
-    self.hiscore.update(self.fc)
+    self.rocci.update(self.session.fc)
+    self.hiscore.update(self.session.fc)
     self.player_y = Math.min(self.player_y + self.player_vel, 134.0)
 
     perform draw_pipes(self.pipes)
     perform draw_background(self.ground_x, self.plants)
     perform draw_player(self.rocci, self.player_y.to_long())
 
-    perform draw_game_over_info(self.score, self.high_score, self.new_high, self.hiscore)
+    perform draw_game_over_info(self.score, self.session.high_score, self.new_high, self.hiscore)
 
     self.enter_final() if Canvas.key('escape')
     self.enter_title() if self.restart_input()
