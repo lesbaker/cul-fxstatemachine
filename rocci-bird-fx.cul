@@ -80,6 +80,9 @@ let PLAYER_START_Y = 40
 # on the side of the player when one hit ends the game).
 let PLAYER_BB_SHRINK_W = 4
 let PLAYER_BB_SHRINK_H = 4
+# How long (in frames: 60 fps assumed) to throttle the player
+# from being able to flap Rocci's wings again
+let PLAYER_FLAP_DELAY = 12  # 0.2 seconds
 let GROUND_Y = H - 13  # 147
 let PLANT_Y = H - 22   # 138
 let PLANT_TYPES = 30
@@ -302,12 +305,8 @@ let idle_shift = fn (rocci: Anim, fc: Long) -> Long {
   }
 }
 
-let flap_allowed = fn (rocci: Anim, fc: Long) -> Bool {
-  cond {
-    rocci.index == 2 => true,
-    rocci.index == 1 => fc - rocci.last_updated > 6,
-    _ => false,
-  }
+let flap_allowed = fn (last_flap: Long, fc: Long) -> Bool {
+  fc - last_flap > PLAYER_FLAP_DELAY
 }
 
 let update_session = fn (s: Object) {
@@ -340,19 +339,22 @@ class App {
   }
 
   enter_game() {
+    let fc = self.session.fc
+
     self.mode = Mode.Game
     # The original reseeds from the frame count at the moment play begins, so
     # the run feels randomly seeded (players rarely start on the same frame).
-    perform seed_prng(self.session.fc)
+    perform seed_prng(fc)
     self.score = 0
     self.max_score = 0
     self.player_y = to_float(PLAYER_START_Y)
     self.player_vel = JUMP
     self.pipes = []
-    self.last_pipe = self.session.fc
-    self.last_plant = Math.max(self.session.fc - 4, 0)
+    self.last_pipe = fc
+    self.last_plant = Math.max(fc - 4, 0)
     self.last_flap = true
-    self.rocci = flap_anim(self.session.fc)
+    self.last_flap_frame = fc
+    self.rocci = flap_anim(fc)
     self.ground_x = 0
     perform play_sound("flap")
   }
@@ -511,8 +513,9 @@ class App {
     perform clear_screen(C1)
 
     let flap = self.flap_input()
-    if !self.last_flap && flap && flap_allowed(self.rocci, self.session.fc) {
+    if !self.last_flap && flap && flap_allowed(self.last_flap_frame, self.session.fc) {
       perform play_sound("flap")
+      self.last_flap_frame = self.session.fc
       self.player_vel = JUMP
       self.rocci.reset(self.session.fc, 0, AnimState.RunOnce)
     } else {
