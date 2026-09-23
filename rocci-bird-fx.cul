@@ -90,7 +90,7 @@ let PLANT_TYPES = 30
 effect fn seed_prng(seed: Long)
 effect fn clear_screen(color: Object)
 effect fn play_sound(sound_name: String)
-effect fn draw_player(rocci: Object)
+effect fn draw_animation(anim: Anim, x: Long, y: Long)
 effect fn draw_background(ground: Long, plants: Array)
 effect fn draw_pipes(pipes: Array)
 effect fn draw_title_text()
@@ -266,9 +266,6 @@ let draw_score = fn (score, base_x, y) {
   }
   Canvas.text(to_string(score), x, y, C4)
 }
-let draw_hiscore = fn (hs) {
-  hs.sheet.draw_sub(64, 0, hs.cells[hs.index][1], 0, hs.sw, 16)
-}
 
 # --- high score ------------------------------------------------------------
 # The platform's per-user data directory, which is also the one directory the
@@ -419,8 +416,8 @@ class App {
       Canvas.tone(**sound_args)
 
       resume()
-    } with draw_player(rocci, draw_y, resume) {
-      rocci.sheet.draw_sub(PLAYER_X, draw_y, rocci.cells[rocci.index][1], 0, rocci.sw, 16)
+    } with draw_animation(anim, draw_x, draw_y, resume) {
+      anim.sheet.draw_sub(draw_x, draw_y, anim.cells[anim.index][1], 0, anim.sw, 16)
 
       resume()
     } with draw_background(ground, plants, resume) {
@@ -451,7 +448,6 @@ class App {
       Canvas.text("Art by Luke DeVault", 4, 151, C4)
       Canvas.rect(66, 2, 28, 12, C1)
       draw_score(score, 68, 4)
-      draw_hiscore(hiscore) if new_high
       Canvas.rect(54, 18, 52, 12, C1)
       Canvas.text("HS:", 57, 20, C4)
       draw_score(high_score, 80, 20)
@@ -502,7 +498,7 @@ class App {
     self.rocci.update(self.session.fc)
     perform draw_title_text()
     perform draw_background(0, self.plants)
-    perform draw_player(self.rocci, PLAYER_START_Y + idle_shift(self.rocci, self.session.fc))
+    perform draw_animation(self.rocci, PLAYER_X, PLAYER_START_Y + idle_shift(self.rocci, self.session.fc))
 
     self.enter_final() if Canvas.key('escape')
     self.enter_game() if self.start_input()
@@ -556,7 +552,7 @@ class App {
     # we keep the collision box pinned to the top of the screen
     let coll_y = Math.clamp(self.player_y.to_long(), 0, 134)
     let hit = collided(coll_y, pipe_bboxes)
-    perform draw_player(self.rocci, self.player_y)
+    perform draw_animation(self.rocci, PLAYER_X, self.player_y)
     perform draw_game_info(self.score)
 
     self.enter_final() if Canvas.key('escape')
@@ -574,9 +570,10 @@ class App {
 
     perform draw_pipes(self.pipes)
     perform draw_background(self.ground_x, self.plants)
-    perform draw_player(self.rocci, self.player_y.to_long())
+    perform draw_animation(self.rocci, PLAYER_X, self.player_y.to_long())
 
     perform draw_game_over_info(self.score, self.session.high_score, self.new_high, self.hiscore)
+    perform draw_animation(self.hiscore, 64, 0) if self.new_high
 
     self.enter_final() if Canvas.key('escape')
     self.enter_title() if self.restart_input()
