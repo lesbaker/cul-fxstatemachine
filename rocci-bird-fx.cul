@@ -294,12 +294,10 @@ let save_high_score_to_file = fn (score) {
   }
 }
 
-let idle_shift = fn (rocci: Anim, fc: Long) -> Long {
-  cond {
-    rocci.index == 2 => 0,
-    rocci.index == 1 && fc - rocci.last_updated > 3 => 0,
-    _ => 1,
-  }
+# Gives an y-axis drawing offset that helps animate Rocci
+# bobbing up and down on the title screen
+let idle_shift = fn (title_start_frame: Long, fc: Long) -> Long {
+  if (Math.wrap(title_start_frame - fc, 40) > 20) { 0 } else { 1 }
 }
 
 let flap_allowed = fn (last_flap: Long, fc: Long) -> Bool {
@@ -333,6 +331,7 @@ class App {
     self.mode = Mode.Title
     self.plants = self.starting_plants()
     self.rocci = idle_anim(self.session.fc)
+    self.title_start_frame = self.session.fc
   }
 
   enter_game() {
@@ -498,7 +497,8 @@ class App {
     self.rocci.update(self.session.fc)
     perform draw_title_text()
     perform draw_background(0, self.plants)
-    perform draw_animation(self.rocci, PLAYER_X, PLAYER_START_Y + idle_shift(self.rocci, self.session.fc))
+    let player_draw_y = PLAYER_START_Y + idle_shift(self.title_start_frame, self.session.fc)
+    perform draw_animation(self.rocci, PLAYER_X, player_draw_y)
 
     self.enter_final() if Canvas.key('escape')
     self.enter_game() if self.start_input()
