@@ -73,11 +73,6 @@ let H = 160
 let GRAVITY = 0.12
 let JUMP = -2.2
 let GAP = 40
-# Rocci's bounding box is shrunk slightly on all sides to prevent spurious
-# hits from non-player pixels in the box (and because it's better to err
-# on the side of the player when one hit ends the game).
-let PLAYER_BB_SHRINK_W = 4
-let PLAYER_BB_SHRINK_H = 4
 let GROUND_Y = H - 13  # 147
 let PLANT_Y = H - 22   # 138
 let PLANT_TYPES = 30
@@ -187,6 +182,11 @@ class Player {
   # How long (in frames: 60 fps assumed) to throttle the player
   # from being able to flap Rocci's wings again
   static FLAP_DELAY = 12  # 0.2 seconds
+  # Rocci's bounding box is shrunk slightly on all sides to prevent spurious
+  # hits from non-player pixels in the box (and because it's better to err
+  # on the side of the player when one hit ends the game).
+  static BB_SHRINK_W = 4
+  static BB_SHRINK_H = 4
 
   y: Float
   vel: Float
@@ -255,12 +255,15 @@ let hiscore_anim = |fc| Anim(
 # --- collision handling ---
 # A hit occurs when Rocci's bounding box intersects with any of the pipe
 # bounding boxes. As documented above, we shrink Rocci's box a bit on both axes.
-let collided = fn (player_y, pipe_bboxes) {
+fn collided(rocci: Player, pipe_bboxes: Array) -> Bool {
+  # If the player tries to cheese the game by flying out-of-bounds,
+  # we keep the collision box pinned to the top of the screen
+  let coll_y = Math.clamp(rocci.y.to_long(), 0, 134)
   let rocci_bbox = {
-    x: Player.X + PLAYER_BB_SHRINK_W,
-    y: player_y + PLAYER_BB_SHRINK_H,
-    w: 16 - 2 * PLAYER_BB_SHRINK_W,
-    h: 16 - 2 * PLAYER_BB_SHRINK_H,
+    x: Player.X + Player.BB_SHRINK_W,
+    y: coll_y + Player.BB_SHRINK_H,
+    w: 16 - 2 * Player.BB_SHRINK_W,
+    h: 16 - 2 * Player.BB_SHRINK_H,
   }
   let rocci_overlap = |x, y, w, h| Canvas.rect_overlap(
     x1: x,
@@ -567,10 +570,7 @@ class App {
     let pipe_bboxes = self.pipes.flat_map(
       |p| [{x: p.x, y: p.gap_start - 160, w: 20, h: 160}, {x: p.x, y: p.gap_start + GAP, w: 20, h: 160}]
     )
-    # If the player tries to cheese the game by flying out-of-bounds,
-    # we keep the collision box pinned to the top of the screen
-    let coll_y = Math.clamp(self.rocci.y.to_long(), 0, 134)
-    let hit = collided(coll_y, pipe_bboxes)
+    let hit = self.rocci.collided(pipe_bboxes)
     perform draw_animation(self.rocci.anim, Player.X, self.rocci.y)
     perform draw_game_info(self.score)
 
