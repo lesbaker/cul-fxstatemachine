@@ -85,7 +85,7 @@ effect fn draw_background(ground: Long, plants: Array)
 effect fn draw_pipes(pipes: Array)
 effect fn draw_title_text()
 effect fn draw_game_info(score: Long)
-effect fn draw_game_over_info(score: Long, high_score: Long, new_high: Bool, hiscore: Object)
+effect fn draw_game_over_info(score: Long, high_score: Long)
 effect fn load_high_score()
 effect fn save_high_score(score: Long)
 
@@ -330,6 +330,10 @@ let save_high_score_to_file = fn (score) {
   }
 }
 
+let starting_plants = fn () {
+  iota(15).map(|i| {x: i * 12, type: Random.int(0, PLANT_TYPES)})
+}
+
 # Gives an y-axis drawing offset that helps animate Rocci
 # bobbing up and down on the title screen
 let idle_shift = fn (title_start_frame: Long, fc: Long) -> Long {
@@ -355,42 +359,55 @@ class App {
     self.mode = Mode.Initial
   }
 
-  starting_plants() {
-    iota(15).map(|i| {x: i * 12, type: Random.int(0, PLANT_TYPES)})
-  }
-
   enter_title() {
     self.mode = Mode.Title
-    self.plants = self.starting_plants()
-    self.rocci.anim = idle_anim(self.session.fc)
-    self.title_start_frame = self.session.fc
+    self.rocci = Player(anim: idle_anim(self.session.fc))
+    self.title = {
+      plants: self.starting_plants(),
+      start_frame: self.session.fc,
+    }
   }
 
   enter_game() {
     let fc = self.session.fc
 
     self.mode = Mode.Game
+    self.rocci = Player(
+      anim: flap_anim(fc),
+      last_flap_frame: fc
+    )
+    self.game = {
+      mut plants: self.title.plants,
+      mut last_plant: Math.max(fc - 4, 0),
+      mut pipes: [],
+      mut last_pipe: fc,
+      mut score: 0,
+      mut max_score: 0,
+      mut ground_x: 0,
+      mut last_flap: true,
+    }
     # The original reseeds from the frame count at the moment play begins, so
     # the run feels randomly seeded (players rarely start on the same frame).
     perform seed_prng(fc)
-    self.rocci = Player(anim: flap_anim(fc), last_flap_frame: fc)
-    self.score = 0
-    self.max_score = 0
-    self.pipes = []
-    self.last_pipe = fc
-    self.last_plant = Math.max(fc - 4, 0)
-    self.last_flap = true
-    self.ground_x = 0
     perform play_sound("flap")
   }
 
   enter_over() {
     self.mode = Mode.Over
-    self.new_high = self.max_score > self.session.high_score
-    self.session.high_score = self.max_score if self.new_high
-    perform save_high_score(self.session.high_score) if self.new_high
-    self.rocci.anim = fall_anim(self.session.fc)
-    self.hiscore = hiscore_anim(self.session.fc)
+    self.rocci = Player(
+      y: self.rocci.y,
+      vel: self.rocci.vel,
+      anim: fall_anim(self.session.fc)
+    )
+    self.over = {
+      last_game_score: self.game.score,
+      new_high: self.game.max_score > self.session.high_score,
+      hiscore_anim: hiscore_anim(self.session.fc),
+      plants: self.game.plants,
+      ground_x: self.game.ground_x,
+    }
+    self.session.high_score = self.game.max_score if self.over.new_high
+    perform save_high_score(self.session.high_score) if self.over.new_high
     perform play_sound("death")
   }
 
@@ -502,16 +519,6 @@ class App {
     }
     # Per-mode state
     self.rocci = Player()
-    self.hiscore = hiscore_anim(0)
-    self.plants = []
-    self.pipes = []
-    self.score = 0
-    self.max_score = 0
-    self.last_pipe = 0
-    self.last_plant = 0
-    self.last_flap = true
-    self.new_high = false
-    self.ground_x = 0
     perform seed_prng(0)
 
     self.enter_title()
@@ -523,8 +530,8 @@ class App {
 
     self.rocci.anim.update(self.session.fc)
     perform draw_title_text()
-    perform draw_background(0, self.plants)
-    let player_draw_y = Player.START_Y + idle_shift(self.title_start_frame, self.session.fc)
+    perform draw_background(0, self.title.plants)
+    let player_draw_y = Player.START_Y + idle_shift(self.title.start_frame, self.session.fc)
     perform draw_animation(self.rocci.anim, Player.X, player_draw_y)
 
     self.enter_final() if Canvas.key('escape')
@@ -536,43 +543,43 @@ class App {
     perform clear_screen(C1)
 
     let flap = self.flap_input()
-    if !self.last_flap && flap && self.rocci.flap_allowed(self.session.fc) {
+    if !self.game.last_flap && flap && self.rocci.flap_allowed(self.session.fc) {
       self.rocci.do_flap(self.session.fc)
     }
-    self.last_flap = flap
+    self.game.last_flap = flap
 
     # pipes: spawn, move (scoring when a pipe crosses Player.X - 2), cull
-    if self.session.fc - self.last_pipe > 90 {
-      self.pipes.push({x: W, gap_start: Random.int(0, 16) * 5 + 10})
-      self.last_pipe = self.session.fc
+    if self.session.fc - self.game.last_pipe > 90 {
+      self.game.pipes.push({x: W, gap_start: Random.int(0, 16) * 5 + 10})
+      self.game.last_pipe = self.session.fc
     }
-    let moved_pipes = self.pipes.map(shift_left)
+    let moved_pipes = self.game.pipes.map(shift_left)
     let gained = moved_pipes.filter(|p| p.x == Player.X - 2).size()
-    self.pipes = moved_pipes.filter(|p| p.x >= -20)
+    self.game.pipes = moved_pipes.filter(|p| p.x >= -20)
 
     # plants: spawn, move, cull
-    if self.session.fc - self.last_plant > 12 {
-      self.plants.push({x: W, type: Random.int(0, PLANT_TYPES)})
-      self.last_plant = self.session.fc
+    if self.session.fc - self.game.last_plant > 12 {
+      self.game.plants.push({x: W, type: Random.int(0, PLANT_TYPES)})
+      self.game.last_plant = self.session.fc
     }
-    self.plants = self.plants.map(shift_left).filter(|p| p.x >= -12)
+    self.game.plants = self.game.plants.map(shift_left).filter(|p| p.x >= -12)
 
     self.rocci.update(self.session.fc)
 
-    self.score = Math.min(self.score + gained, 255)
-    self.max_score = Math.max(self.score, self.max_score)
-    self.ground_x = (self.ground_x - 1) % W
+    self.game.score = Math.min(self.game.score + gained, 255)
+    self.game.max_score = Math.max(self.game.score, self.game.max_score)
+    self.game.ground_x = (self.game.ground_x - 1) % W
     perform play_sound("point") if gained > 0
 
-    perform draw_pipes(self.pipes)
-    perform draw_background(self.ground_x, self.plants)
+    perform draw_pipes(self.game.pipes)
+    perform draw_background(self.game.ground_x, self.game.plants)
 
-    let pipe_bboxes = self.pipes.flat_map(
+    let pipe_bboxes = self.game.pipes.flat_map(
       |p| [{x: p.x, y: p.gap_start - 160, w: 20, h: 160}, {x: p.x, y: p.gap_start + GAP, w: 20, h: 160}]
     )
     let hit = self.rocci.collided(pipe_bboxes)
     perform draw_animation(self.rocci.anim, Player.X, self.rocci.y)
-    perform draw_game_info(self.score)
+    perform draw_game_info(self.game.score)
 
     self.enter_final() if Canvas.key('escape')
     self.enter_over() if hit || self.rocci.y >= 134.0
@@ -583,14 +590,14 @@ class App {
     perform clear_screen(C1)
 
     self.rocci.update(self.session.fc)
-    self.hiscore.update(self.session.fc)
+    self.over.hiscore_anim.update(self.session.fc)
 
-    perform draw_pipes(self.pipes)
-    perform draw_background(self.ground_x, self.plants)
+    perform draw_pipes(self.game.pipes)
+    perform draw_background(self.over.ground_x, self.over.plants)
     perform draw_animation(self.rocci.anim, Player.X, self.rocci.y.to_long())
 
-    perform draw_game_over_info(self.score, self.session.high_score)
-    perform draw_animation(self.hiscore, 64, 0) if self.new_high
+    perform draw_game_over_info(self.over.last_game_score, self.session.high_score)
+    perform draw_animation(self.over.hiscore_anim, 64, 0) if self.over.new_high
 
     self.enter_final() if Canvas.key('escape')
     self.enter_title() if self.restart_input()
