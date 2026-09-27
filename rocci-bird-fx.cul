@@ -96,37 +96,37 @@ let sounds = {
     "freq": 700,
     "dur": 0,
     "vol": 10,
-    "wave": Canvas.PULSE,
+    "wave": Audio.PULSE,
     "end_freq": 870,
     "attack": 10,
     "decay": 5,
     "release": 3,
     "peak": 20,
-    "duty": Canvas.DUTY_QUARTER,
+    "duty": Audio.DUTY_QUARTER,
   },
   "point": {
     "freq": 995,
     "dur": 0,
     "vol": 25,
-    "wave": Canvas.PULSE2,
+    "wave": Audio.PULSE2,
     "end_freq": 1000,
     "attack": 0,
     "decay": 10,
     "release": 10,
     "peak": 75,
-    "duty": Canvas.DUTY_HALF,
+    "duty": Audio.DUTY_HALF,
   },
   "death": {
     "freq": 170,
     "dur": 20,
     "vol": 100,
-    "wave": Canvas.NOISE,
+    "wave": Audio.NOISE,
     "end_freq": 40,
     "attack": 0,
     "decay": 40,
     "release": 0,
     "peak": 0,
-    "duty": Canvas.DUTY_HALF,
+    "duty": Audio.DUTY_HALF,
   },
 }
 
@@ -454,7 +454,7 @@ class App {
       resume()
     } with play_sound(sound_name, resume) {
       sound_args = sounds[sound_name]
-      Canvas.tone(**sound_args)
+      Audio.tone(**sound_args)
 
       resume()
     } with draw_animation(anim, draw_x, draw_y, resume) {
