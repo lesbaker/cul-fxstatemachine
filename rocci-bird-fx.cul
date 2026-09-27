@@ -363,7 +363,7 @@ class App {
     self.mode = Mode.Title
     self.rocci = Player(anim: idle_anim(self.session.fc))
     self.title = {
-      plants: self.starting_plants(),
+      plants: starting_plants(),
       start_frame: self.session.fc,
     }
   }
