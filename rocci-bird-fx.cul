@@ -143,32 +143,48 @@ class Anim {
     # state: an AnimState
     self.last_updated = fc
   }
-  reset(fc, index, state) {
-    self.index = index
-    self.state = state
-    self.last_updated = fc
+  reset(fc, index, state) -> Anim {
+    Anim(
+      sheet: self.sheet,
+      sw: self.sw,
+      cells: self.cells,
+      fc: fc,
+      index: index,
+      state: state,
+    )
   }
-  update(fc) {
+  update(fc) -> Anim {
     let fpu = self.cells[self.index][0]
-    return if fc - self.last_updated < fpu
+    return self if fc - self.last_updated < fpu
     let ni = (self.index + 1) % self.cells.size()
-    match self.state {
+    mut last_updated = 0
+    mut index = self.index
+    mut state = self.state
+    match state {
       s: Completed => {
-        self.last_updated = fc
+        last_updated = fc
       },
       s: Loop => {
-        self.index = ni
-        self.last_updated = fc
+        index = ni
+        last_updated = fc
       },
       s: RunOnce => {
         if ni == 0 {
-          self.state = AnimState.Completed
+          state = AnimState.Completed
         } else {
-          self.index = ni
+          index = ni
         }
-        self.last_updated = fc
+        last_updated = fc
       },
     }
+    Anim(
+      sheet: self.sheet,
+      sw: self.sw,
+      cells: self.cells,
+      fc: last_updated,
+      index: index,
+      state: state,
+    )
   }
 }
 
@@ -191,22 +207,35 @@ class Player {
 
   new(.y = to_float(Player.START_Y), .vel = JUMP, .anim = idle_anim(0), .last_flap_frame = 0) {}
 
-  do_flap(fc: Long) {
+  do_flap(fc: Long) -> Player {
     perform play_sound("flap")
 
-    self.last_flap_frame = fc
+    Player(
+      y: self.y,
+      vel: self.vel,
+      anim: self.anim,
+      last_flap_frame: fc,
+    )
   }
 
-  update(fc: Long) {
+  update(fc: Long) -> Player {
+    mut anim: Anim = self.anim
+    mut vel = self.vel
+
     if (fc != self.last_flap_frame) {
-      self.vel += GRAVITY
-      self.anim.update(fc)
+      vel += GRAVITY
+      anim = self.anim.update(fc)
     } else {
-      self.vel = JUMP  # apply flap impulse
-      self.anim.reset(fc, 0, AnimState.RunOnce)
+      vel = JUMP  # apply flap impulse
+      anim = self.anim.reset(fc, 0, AnimState.RunOnce)
     }
 
-    self.y = Math.min(self.y + self.vel, 134.0)
+    Player(
+      y: Math.min(self.y + vel, 134.0),
+      vel: vel,
+      anim: anim,
+      last_flap_frame: self.last_flap_frame,
+    )
   }
 }
 
@@ -398,7 +427,7 @@ class App {
     self.over = {
       last_game_score: self.game.score,
       new_high: self.game.max_score > self.session.high_score,
-      hiscore_anim: hiscore_anim(self.session.fc),
+      mut hiscore_anim: hiscore_anim(self.session.fc),
       plants: self.game.plants,
       ground_x: self.game.ground_x,
     }
@@ -524,7 +553,7 @@ class App {
     update_session(self.session)
     perform clear_screen(C1)
 
-    self.rocci.anim.update(self.session.fc)
+    self.rocci.anim = self.rocci.anim.update(self.session.fc)
     perform draw_title_text()
     perform draw_background(0, self.title.plants)
     let player_draw_y = Player.START_Y + idle_shift(self.title.start_frame, self.session.fc)
@@ -540,7 +569,7 @@ class App {
 
     let flap = self.flap_input()
     if !self.game.last_flap && flap && self.rocci.flap_allowed(self.session.fc) {
-      self.rocci.do_flap(self.session.fc)
+      self.rocci = self.rocci.do_flap(self.session.fc)
     }
     self.game.last_flap = flap
 
@@ -560,7 +589,7 @@ class App {
     }
     self.game.plants = self.game.plants.map(shift_left).filter(|p| p.x >= -12)
 
-    self.rocci.update(self.session.fc)
+    self.rocci = self.rocci.update(self.session.fc)
 
     self.game.score = Math.min(self.game.score + gained, 255)
     self.game.max_score = Math.max(self.game.score, self.game.max_score)
@@ -585,8 +614,8 @@ class App {
     update_session(self.session)
     perform clear_screen(C1)
 
-    self.rocci.update(self.session.fc)
-    self.over.hiscore_anim.update(self.session.fc)
+    self.rocci = self.rocci.update(self.session.fc)
+    self.over.hiscore_anim = self.over.hiscore_anim.update(self.session.fc)
 
     perform draw_pipes(self.game.pipes)
     perform draw_background(self.over.ground_x, self.over.plants)
