@@ -188,6 +188,14 @@ class Anim {
   }
 }
 
+@value
+class FlapData {
+  happened: Bool
+  frame: Long
+
+  new(.happened, .frame = 0) {}
+}
+
 class Player {
   static X = 70
   static START_Y = 40
@@ -207,35 +215,24 @@ class Player {
 
   new(.y = to_float(Player.START_Y), .vel = JUMP, .anim = idle_anim(0), .last_flap_frame = 0) {}
 
-  do_flap(fc: Long) -> Player {
-    perform play_sound("flap")
-
-    Player(
-      y: self.y,
-      vel: self.vel,
-      anim: self.anim,
-      last_flap_frame: fc,
-    )
-  }
-
-  update(fc: Long) -> Player {
-    mut anim: Anim = self.anim
-    mut vel = self.vel
-
-    if (fc != self.last_flap_frame) {
-      vel += GRAVITY
-      anim = self.anim.update(fc)
+  update(flap: FlapData, fc: Long) -> Player {
+    if (flap.happened) {
+      Player(
+        y: Math.min(self.y + JUMP, 134.0),
+        vel: JUMP,
+        anim: self.anim.reset(fc, 0, AnimState.RunOnce),
+        last_flap_frame: flap.frame,
+      )
     } else {
-      vel = JUMP  # apply flap impulse
-      anim = self.anim.reset(fc, 0, AnimState.RunOnce)
-    }
+      let vel = self.vel + GRAVITY
 
-    Player(
-      y: Math.min(self.y + vel, 134.0),
-      vel: vel,
-      anim: anim,
-      last_flap_frame: self.last_flap_frame,
-    )
+      Player(
+        y: Math.min(self.y + vel, 134.0),
+        vel: vel,
+        anim: self.anim.update(fc),
+        last_flap_frame: self.last_flap_frame,
+      )
+    }
   }
 }
 
@@ -567,29 +564,35 @@ class App {
     update_session(self.session)
     perform clear_screen(C1)
 
-    let flap = self.flap_input()
-    if !self.game.last_flap && flap && self.rocci.flap_allowed(self.session.fc) {
-      self.rocci = self.rocci.do_flap(self.session.fc)
+    let fc = self.session.fc
+    let flap_inp_down = self.flap_input()
+    let flap_pressed = !self.game.last_flap && flap_inp_down
+    let flap: FlapData = if flap_pressed && self.rocci.flap_allowed(fc) {
+      FlapData(true, fc)
+    } else {
+      FlapData(false)
     }
-    self.game.last_flap = flap
+
+    self.game.last_flap = flap_inp_down
+    perform play_sound("flap") if flap.happened
 
     # pipes: spawn, move (scoring when a pipe crosses Player.X - 2), cull
-    if self.session.fc - self.game.last_pipe > 90 {
+    if fc - self.game.last_pipe > 90 {
       self.game.pipes.push({x: W, gap_start: Random.int(0, 16) * 5 + 10})
-      self.game.last_pipe = self.session.fc
+      self.game.last_pipe = fc
     }
     let moved_pipes = self.game.pipes.map(shift_left)
     let gained = moved_pipes.filter(|p| p.x == Player.X - 2).size()
     self.game.pipes = moved_pipes.filter(|p| p.x >= -20)
 
     # plants: spawn, move, cull
-    if self.session.fc - self.game.last_plant > 12 {
+    if fc - self.game.last_plant > 12 {
       self.game.plants.push({x: W, type: Random.int(0, PLANT_TYPES)})
-      self.game.last_plant = self.session.fc
+      self.game.last_plant = fc
     }
     self.game.plants = self.game.plants.map(shift_left).filter(|p| p.x >= -12)
 
-    self.rocci = self.rocci.update(self.session.fc)
+    self.rocci = self.rocci.update(flap, fc)
 
     self.game.score = Math.min(self.game.score + gained, 255)
     self.game.max_score = Math.max(self.game.score, self.game.max_score)
@@ -614,7 +617,7 @@ class App {
     update_session(self.session)
     perform clear_screen(C1)
 
-    self.rocci = self.rocci.update(self.session.fc)
+    self.rocci = self.rocci.update(FlapData(false), self.session.fc)
     self.over.hiscore_anim = self.over.hiscore_anim.update(self.session.fc)
 
     perform draw_pipes(self.game.pipes)
