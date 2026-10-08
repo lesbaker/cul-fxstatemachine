@@ -188,12 +188,9 @@ class Anim {
   }
 }
 
-@value
-class FlapData {
-  happened: Bool
-  frame: Long
-
-  new(.happened, .frame = 0) {}
+enum FlapData {
+  Happened(Long),
+  NoFlap,
 }
 
 class Player {
@@ -215,20 +212,23 @@ class Player {
   new(.y = to_float(Player.START_Y), .vel = JUMP, .last_flap_frame = 0) {}
 
   update(flap: FlapData) -> Player {
-    if (flap.happened) {
-      Player(
-        y: Math.min(self.y + JUMP, 134.0),
-        vel: JUMP,
-        last_flap_frame: flap.frame,
-      )
-    } else {
-      let vel = self.vel + GRAVITY
+    match flap {
+      FlapData.Happened(frame) => {
+        Player(
+          y: Math.min(self.y + JUMP, 134.0),
+          vel: JUMP,
+          last_flap_frame: frame,
+        )
+      },
+      FlapData.NoFlap() => {
+        let vel = self.vel + GRAVITY
 
-      Player(
-        y: Math.min(self.y + vel, 134.0),
-        vel: vel,
-        last_flap_frame: self.last_flap_frame,
-      )
+        Player(
+          y: Math.min(self.y + vel, 134.0),
+          vel: vel,
+          last_flap_frame: self.last_flap_frame,
+        )
+      }
     }
   }
 }
@@ -567,14 +567,14 @@ class App {
     let flap_pressed = !self.game.last_flap && flap_inp_down
     let flap: FlapData = if flap_pressed && self.rocci.flap_allowed(fc) {
       self.rocci_anim = self.rocci_anim.reset(fc, 0, AnimState.RunOnce)
-      FlapData(true, fc)
+      FlapData.Happened(fc)
     } else {
       self.rocci_anim = self.rocci_anim.update(fc)
-      FlapData(false)
+      FlapData.NoFlap
     }
 
     self.game.last_flap = flap_inp_down
-    perform play_sound("flap") if flap.happened
+    perform play_sound("flap") if type_of(flap) == 'Happened'
 
     # pipes: spawn, move (scoring when a pipe crosses Player.X - 2), cull
     if fc - self.game.last_pipe > 90 {
@@ -617,7 +617,7 @@ class App {
     update_session(self.session)
     perform clear_screen(C1)
 
-    self.rocci = self.rocci.update(FlapData(false))
+    self.rocci = self.rocci.update(FlapData.NoFlap)
     self.rocci_anim = self.rocci_anim.update(self.session.fc)
     self.over.hiscore_anim = self.over.hiscore_anim.update(self.session.fc)
 
