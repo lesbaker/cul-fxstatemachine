@@ -210,17 +210,15 @@ class Player {
 
   y: Float
   vel: Float
-  anim: Anim
   last_flap_frame: Long
 
-  new(.y = to_float(Player.START_Y), .vel = JUMP, .anim = idle_anim(0), .last_flap_frame = 0) {}
+  new(.y = to_float(Player.START_Y), .vel = JUMP, .last_flap_frame = 0) {}
 
-  update(flap: FlapData, fc: Long) -> Player {
+  update(flap: FlapData) -> Player {
     if (flap.happened) {
       Player(
         y: Math.min(self.y + JUMP, 134.0),
         vel: JUMP,
-        anim: self.anim.reset(fc, 0, AnimState.RunOnce),
         last_flap_frame: flap.frame,
       )
     } else {
@@ -229,7 +227,6 @@ class Player {
       Player(
         y: Math.min(self.y + vel, 134.0),
         vel: vel,
-        anim: self.anim.update(fc),
         last_flap_frame: self.last_flap_frame,
       )
     }
@@ -383,7 +380,8 @@ class App {
 
   enter_title() {
     self.mode = Mode.Title
-    self.rocci = Player(anim: idle_anim(self.session.fc))
+    self.rocci = Player()
+    self.rocci_anim = idle_anim(self.session.fc)
     self.title = {
       plants: starting_plants(),
       start_frame: self.session.fc,
@@ -395,9 +393,9 @@ class App {
 
     self.mode = Mode.Game
     self.rocci = Player(
-      anim: flap_anim(fc),
       last_flap_frame: fc
     )
+    self.rocci_anim = flap_anim(fc)
     self.game = {
       mut plants: self.title.plants,
       mut last_plant: Math.max(fc - 4, 0),
@@ -419,8 +417,8 @@ class App {
     self.rocci = Player(
       y: self.rocci.y,
       vel: self.rocci.vel,
-      anim: fall_anim(self.session.fc)
     )
+    self.rocci_anim = fall_anim(self.session.fc)
     self.over = {
       last_game_score: self.game.score,
       new_high: self.game.max_score > self.session.high_score,
@@ -550,11 +548,11 @@ class App {
     update_session(self.session)
     perform clear_screen(C1)
 
-    self.rocci.anim = self.rocci.anim.update(self.session.fc)
+    self.rocci_anim = self.rocci_anim.update(self.session.fc)
     perform draw_title_text()
     perform draw_background(0, self.title.plants)
     let player_draw_y = Player.START_Y + idle_shift(self.title.start_frame, self.session.fc)
-    perform draw_animation(self.rocci.anim, Player.X, player_draw_y)
+    perform draw_animation(self.rocci_anim, Player.X, player_draw_y)
 
     self.enter_final() if Canvas.key('escape')
     self.enter_game() if self.start_input()
@@ -568,8 +566,10 @@ class App {
     let flap_inp_down = self.flap_input()
     let flap_pressed = !self.game.last_flap && flap_inp_down
     let flap: FlapData = if flap_pressed && self.rocci.flap_allowed(fc) {
+      self.rocci_anim = self.rocci_anim.reset(fc, 0, AnimState.RunOnce)
       FlapData(true, fc)
     } else {
+      self.rocci_anim = self.rocci_anim.update(fc)
       FlapData(false)
     }
 
@@ -592,7 +592,7 @@ class App {
     }
     self.game.plants = self.game.plants.map(shift_left).filter(|p| p.x >= -12)
 
-    self.rocci = self.rocci.update(flap, fc)
+    self.rocci = self.rocci.update(flap)
 
     self.game.score = Math.min(self.game.score + gained, 255)
     self.game.max_score = Math.max(self.game.score, self.game.max_score)
@@ -606,7 +606,7 @@ class App {
       |p| [{x: p.x, y: p.gap_start - 160, w: 20, h: 160}, {x: p.x, y: p.gap_start + GAP, w: 20, h: 160}]
     )
     let hit = self.rocci.collided(pipe_bboxes)
-    perform draw_animation(self.rocci.anim, Player.X, self.rocci.y)
+    perform draw_animation(self.rocci_anim, Player.X, self.rocci.y)
     perform draw_game_info(self.game.score)
 
     self.enter_final() if Canvas.key('escape')
@@ -617,12 +617,13 @@ class App {
     update_session(self.session)
     perform clear_screen(C1)
 
-    self.rocci = self.rocci.update(FlapData(false), self.session.fc)
+    self.rocci = self.rocci.update(FlapData(false))
+    self.rocci_anim = self.rocci_anim.update(self.session.fc)
     self.over.hiscore_anim = self.over.hiscore_anim.update(self.session.fc)
 
     perform draw_pipes(self.game.pipes)
     perform draw_background(self.over.ground_x, self.over.plants)
-    perform draw_animation(self.rocci.anim, Player.X, self.rocci.y.to_long())
+    perform draw_animation(self.rocci_anim, Player.X, self.rocci.y.to_long())
 
     perform draw_game_over_info(self.over.last_game_score, self.session.high_score)
     perform draw_animation(self.over.hiscore_anim, 64, 0) if self.over.new_high
