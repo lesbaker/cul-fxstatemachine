@@ -159,9 +159,18 @@ enum AnimState {
   Completed,
 }
 
-# cells is a list of [frames, src_x]; every frame is `sw`x16 on `sheet`.
+# A single picture element of an animation, shown for
+# (frames / 60) seconds long.
+@value
+class AnimCell {
+  sprite: GameSprite
+  frames: Long
+
+  new(.sprite, .frames) {}
+}
+
 class Anim {
-  new(.timeline, fc, .index, .state) {
+  new(.timeline: Array<AnimCell>, fc, .index, .state) {
     # state: an AnimState
     self.last_updated = fc
   }
@@ -174,7 +183,7 @@ class Anim {
     )
   }
   update(fc) -> Anim {
-    let fpu: Long = self.timeline[self.index][1]
+    let fpu: Long = self.timeline[self.index].frames
     return self if fc - self.last_updated < fpu
     let ni = (self.index + 1) % self.timeline.size()
     mut last_updated = 0
@@ -206,7 +215,7 @@ class Anim {
   }
 
   cur_sprite() -> GameSprite {
-    self.timeline[self.index][0]
+    self.timeline[self.index].sprite
   }
 }
 
@@ -261,9 +270,9 @@ fn flap_allowed(rocci: Player, fc: Long) -> Bool {
 
 let idle_anim = |fc| Anim(
   [
-    (GameSprite(SPR_IDX_ROCCI_SHEET, 0, 16), 17),
-    (GameSprite(SPR_IDX_ROCCI_SHEET, 16, 16), 6),
-    (GameSprite(SPR_IDX_ROCCI_SHEET, 32, 16), 17),
+    AnimCell(GameSprite(SPR_IDX_ROCCI_SHEET, 0, 16), 17),
+    AnimCell(GameSprite(SPR_IDX_ROCCI_SHEET, 16, 16), 6),
+    AnimCell(GameSprite(SPR_IDX_ROCCI_SHEET, 32, 16), 17),
   ],
   fc,
   0,
@@ -271,9 +280,9 @@ let idle_anim = |fc| Anim(
 )
 let flap_anim = |fc| Anim(
   [
-    (GameSprite(SPR_IDX_ROCCI_SHEET, 16, 16), 6),
-    (GameSprite(SPR_IDX_ROCCI_SHEET, 32, 16), 12),
-    (GameSprite(SPR_IDX_ROCCI_SHEET, 0, 16), 1),
+    AnimCell(GameSprite(SPR_IDX_ROCCI_SHEET, 16, 16), 6),
+    AnimCell(GameSprite(SPR_IDX_ROCCI_SHEET, 32, 16), 12),
+    AnimCell(GameSprite(SPR_IDX_ROCCI_SHEET, 0, 16), 1),
   ],
   fc,
   2,
@@ -281,8 +290,8 @@ let flap_anim = |fc| Anim(
 )
 let fall_anim = |fc| Anim(
   [
-    (GameSprite(SPR_IDX_ROCCI_SHEET, 48, 16), 10),
-    (GameSprite(SPR_IDX_ROCCI_SHEET, 64, 16), 10),
+    AnimCell(GameSprite(SPR_IDX_ROCCI_SHEET, 48, 16), 10),
+    AnimCell(GameSprite(SPR_IDX_ROCCI_SHEET, 64, 16), 10),
   ],
   fc,
   0,
@@ -290,10 +299,10 @@ let fall_anim = |fc| Anim(
 )
 let hiscore_anim = |fc| Anim(
   [
-    (GameSprite(SPR_IDX_HISCORE_SHEET, 0, 32), 5),
-    (GameSprite(SPR_IDX_HISCORE_SHEET, 32, 32), 5),
-    (GameSprite(SPR_IDX_HISCORE_SHEET, 64, 32), 5),
-    (GameSprite(SPR_IDX_HISCORE_SHEET, 96, 32), 5),
+    AnimCell(GameSprite(SPR_IDX_HISCORE_SHEET, 0, 32), 5),
+    AnimCell(GameSprite(SPR_IDX_HISCORE_SHEET, 32, 32), 5),
+    AnimCell(GameSprite(SPR_IDX_HISCORE_SHEET, 64, 32), 5),
+    AnimCell(GameSprite(SPR_IDX_HISCORE_SHEET, 96, 32), 5),
   ],
   fc,
   0,
