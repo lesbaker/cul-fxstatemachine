@@ -170,7 +170,7 @@ class AnimCell {
 }
 
 class Anim {
-  new(.timeline: Array<AnimCell>, fc, .index, .state) {
+  new(.timeline: Array<AnimCell>, fc, .state, .index = 0) {
     # state: an AnimState
     self.last_updated = fc
   }
@@ -215,7 +215,12 @@ class Anim {
   }
 
   cur_sprite() -> GameSprite {
-    self.timeline[self.index].sprite
+    let idx = match self.state {
+      s: Completed => 0,
+      _ => self.index,
+    }
+
+    self.timeline[idx].sprite
   }
 }
 
@@ -275,17 +280,15 @@ let idle_anim = |fc| Anim(
     AnimCell(GameSprite(SPR_IDX_ROCCI_SHEET, 32, 16), 17),
   ],
   fc,
-  0,
   AnimState.Loop,
 )
 let flap_anim = |fc| Anim(
   [
+    AnimCell(GameSprite(SPR_IDX_ROCCI_SHEET, 0, 16), 1),
     AnimCell(GameSprite(SPR_IDX_ROCCI_SHEET, 16, 16), 6),
     AnimCell(GameSprite(SPR_IDX_ROCCI_SHEET, 32, 16), 12),
-    AnimCell(GameSprite(SPR_IDX_ROCCI_SHEET, 0, 16), 1),
   ],
   fc,
-  2,
   AnimState.Completed,
 )
 let fall_anim = |fc| Anim(
@@ -294,7 +297,6 @@ let fall_anim = |fc| Anim(
     AnimCell(GameSprite(SPR_IDX_ROCCI_SHEET, 64, 16), 10),
   ],
   fc,
-  0,
   AnimState.Loop,
 )
 let hiscore_anim = |fc| Anim(
@@ -305,7 +307,6 @@ let hiscore_anim = |fc| Anim(
     AnimCell(GameSprite(SPR_IDX_HISCORE_SHEET, 96, 32), 5),
   ],
   fc,
-  0,
   AnimState.Loop,
 )
 
