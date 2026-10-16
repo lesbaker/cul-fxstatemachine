@@ -89,7 +89,7 @@ let PLANT_TYPES = 30
 effect fn seed_prng(seed: Long)
 effect fn clear_screen(color: Object)
 effect fn play_sound(sound_name: String)
-effect fn draw_animation(anim: Anim, x: Long, y: Long)
+effect fn draw_animation(anim: Anim, fc: Long, x: Long, y: Long)
 effect fn draw_background(ground: Long, plants: Array)
 effect fn draw_pipes(pipes: Array)
 effect fn draw_title_text()
@@ -153,12 +153,6 @@ fn draw_to_canvas(spr: GameSprite, draw_x: Long, draw_y: Long) {
   canv_sprites[spr.source].draw_sub(draw_x, draw_y, spr.src_x, 0, spr.src_width, 16)
 }
 
-enum AnimState {
-  Loop,
-  RunOnce,
-  Completed,
-}
-
 # A single picture element of an animation, shown for
 # (frames / 60) seconds long.
 @value
@@ -169,58 +163,54 @@ class AnimCell {
   new(.sprite, .frames) {}
 }
 
+class AnimTimeline {
+  timeline: Array<AnimCell>
+  index_tbl: Array<Long>
+
+  new(.timeline: Array<AnimCell>) {
+    # Compute look up table mapping frame number to the
+    # corresponding cell index in its animation timeline
+    self.index_tbl = timeline.iter()
+      .map(|cell| cell.frames)
+      .enumerate()
+      .flat_map(|(idx, frames)| repeat(frames, idx))
+      .collect()
+  }
+
+  total_frames() -> Long { self.index_tbl.size() }
+
+  cell_at_frame(frame: Long) -> AnimCell {
+    throw "{frame} out of range" if frame >= self.total_frames()
+
+    self.timeline[self.index_tbl[frame]]
+  }
+}
+
+@value
 class Anim {
-  new(.timeline: Array<AnimCell>, fc, .state, .index = 0) {
-    # state: an AnimState
-    self.last_updated = fc
-  }
-  reset(fc, index, state) -> Anim {
+  timeline: Long
+  oneshot: Bool
+  start_fc: Long
+
+  new(.timeline: Long, .start_fc: Long, .oneshot = false) {}
+
+  reset(start_fc) -> Anim {
     Anim(
       timeline: self.timeline,
-      fc: fc,
-      index: index,
-      state: state,
+      start_fc: start_fc,
+      oneshot: self.oneshot,
     )
   }
-  update(fc) -> Anim {
-    let fpu: Long = self.timeline[self.index].frames
-    return self if fc - self.last_updated < fpu
-    let ni = (self.index + 1) % self.timeline.size()
-    mut last_updated = 0
-    mut index = self.index
-    mut state = self.state
-    match state {
-      s: Completed => {
-        last_updated = fc
-      },
-      s: Loop => {
-        index = ni
-        last_updated = fc
-      },
-      s: RunOnce => {
-        if ni == 0 {
-          state = AnimState.Completed
-        } else {
-          index = ni
-        }
-        last_updated = fc
-      },
-    }
-    Anim(
-      timeline: self.timeline,
-      fc: last_updated,
-      index: index,
-      state: state,
-    )
-  }
+}
 
-  cur_sprite() -> GameSprite {
-    let idx = match self.state {
-      s: Completed => 0,
-      _ => self.index,
-    }
+fn compute_frame(anim: Anim, fc: Long) -> Long {
+  let delta = fc - anim.start_fc
+  let tl = anims[anim.timeline]
 
-    self.timeline[idx].sprite
+  if (anim.oneshot) {
+    delta < tl.total_frames() ? delta : 0
+  } else {
+    delta % tl.total_frames()
   }
 }
 
@@ -273,41 +263,50 @@ fn flap_allowed(rocci: Player, fc: Long) -> Bool {
   fc - rocci.last_flap_frame > Player.FLAP_DELAY
 }
 
-let idle_anim = |fc| Anim(
-  [
+let ANIM_TL_IDX_IDLE = 0
+let ANIM_TL_IDX_FLAP = 1
+let ANIM_TL_IDX_FALL = 2
+let ANIM_TL_IDX_HISCORE = 3
+
+let anims = [
+  AnimTimeline([
     AnimCell(GameSprite(SPR_IDX_ROCCI_SHEET, 0, 16), 17),
     AnimCell(GameSprite(SPR_IDX_ROCCI_SHEET, 16, 16), 6),
     AnimCell(GameSprite(SPR_IDX_ROCCI_SHEET, 32, 16), 17),
-  ],
-  fc,
-  AnimState.Loop,
-)
-let flap_anim = |fc| Anim(
-  [
+  ]),
+  AnimTimeline([
     AnimCell(GameSprite(SPR_IDX_ROCCI_SHEET, 0, 16), 1),
     AnimCell(GameSprite(SPR_IDX_ROCCI_SHEET, 16, 16), 6),
     AnimCell(GameSprite(SPR_IDX_ROCCI_SHEET, 32, 16), 12),
-  ],
-  fc,
-  AnimState.Completed,
-)
-let fall_anim = |fc| Anim(
-  [
+  ]),
+  AnimTimeline([
     AnimCell(GameSprite(SPR_IDX_ROCCI_SHEET, 48, 16), 10),
     AnimCell(GameSprite(SPR_IDX_ROCCI_SHEET, 64, 16), 10),
-  ],
-  fc,
-  AnimState.Loop,
-)
-let hiscore_anim = |fc| Anim(
-  [
+  ]),
+  AnimTimeline([
     AnimCell(GameSprite(SPR_IDX_HISCORE_SHEET, 0, 32), 5),
     AnimCell(GameSprite(SPR_IDX_HISCORE_SHEET, 32, 32), 5),
     AnimCell(GameSprite(SPR_IDX_HISCORE_SHEET, 64, 32), 5),
     AnimCell(GameSprite(SPR_IDX_HISCORE_SHEET, 96, 32), 5),
-  ],
+  ]),
+]
+
+let idle_anim = |fc| Anim(
+  ANIM_TL_IDX_IDLE,
   fc,
-  AnimState.Loop,
+)
+let flap_anim = |fc| Anim(
+  ANIM_TL_IDX_FLAP,
+  fc,
+  oneshot: true,
+)
+let fall_anim = |fc| Anim(
+  ANIM_TL_IDX_FALL,
+  fc,
+)
+let hiscore_anim = |fc| Anim(
+  ANIM_TL_IDX_HISCORE,
+  fc,
 )
 
 # --- collision handling ---
@@ -520,8 +519,10 @@ class App {
       Audio.tone(**sound_args)
 
       resume()
-    } with draw_animation(anim, draw_x, draw_y, resume) {
-      anim.cur_sprite().draw_to_canvas(draw_x.to_long(), draw_y.to_long())
+    } with draw_animation(anim, fc, draw_x, draw_y, resume) {
+      let render_frame: Long = anim.compute_frame(fc)
+      let cell: AnimCell = anims[anim.timeline].cell_at_frame(render_frame)
+      cell.sprite.draw_to_canvas(draw_x.to_long(), draw_y.to_long())
 
       resume()
     } with draw_background(ground, plants, resume) {
@@ -587,11 +588,10 @@ class App {
     update_session(self.session)
     perform clear_screen(C1)
 
-    self.rocci_anim = self.rocci_anim.update(self.session.fc)
     perform draw_title_text()
     perform draw_background(0, self.title.plants)
     let player_draw_y = Player.START_Y + idle_shift(self.title.start_frame, self.session.fc)
-    perform draw_animation(self.rocci_anim, Player.X, player_draw_y)
+    perform draw_animation(self.rocci_anim, self.session.fc, Player.X, player_draw_y)
 
     self.enter_final() if Canvas.key('escape')
     self.enter_game() if self.start_input()
@@ -605,10 +605,9 @@ class App {
     let flap_inp_down = self.flap_input()
     let flap_pressed = !self.game.last_flap && flap_inp_down
     let flap: FlapData = if flap_pressed && self.rocci.flap_allowed(fc) {
-      self.rocci_anim = self.rocci_anim.reset(fc, 0, AnimState.RunOnce)
+      self.rocci_anim = self.rocci_anim.reset(fc)
       FlapData.Happened(fc)
     } else {
-      self.rocci_anim = self.rocci_anim.update(fc)
       FlapData.NoFlap
     }
 
@@ -645,7 +644,7 @@ class App {
       |p| [{x: p.x, y: p.gap_start - 160, w: 20, h: 160}, {x: p.x, y: p.gap_start + GAP, w: 20, h: 160}]
     )
     let hit = self.rocci.collided(pipe_bboxes)
-    perform draw_animation(self.rocci_anim, Player.X, self.rocci.y)
+    perform draw_animation(self.rocci_anim, fc, Player.X, self.rocci.y)
     perform draw_game_info(self.game.score)
 
     self.enter_final() if Canvas.key('escape')
@@ -657,15 +656,13 @@ class App {
     perform clear_screen(C1)
 
     self.rocci = self.rocci.update(FlapData.NoFlap)
-    self.rocci_anim = self.rocci_anim.update(self.session.fc)
-    self.over.hiscore_anim = self.over.hiscore_anim.update(self.session.fc)
 
     perform draw_pipes(self.game.pipes)
     perform draw_background(self.over.ground_x, self.over.plants)
-    perform draw_animation(self.rocci_anim, Player.X, self.rocci.y.to_long())
+    perform draw_animation(self.rocci_anim, self.session.fc, Player.X, self.rocci.y.to_long())
 
     perform draw_game_over_info(self.over.last_game_score, self.session.high_score)
-    perform draw_animation(self.over.hiscore_anim, 64, 0) if self.over.new_high
+    perform draw_animation(self.over.hiscore_anim, self.session.fc, 64, 0) if self.over.new_high
 
     self.enter_final() if Canvas.key('escape')
     self.enter_title() if self.restart_input()
