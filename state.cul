@@ -1,0 +1,16 @@
+class Machine<S> {
+  state: S
+
+  new(initial: S) {
+    self.state = initial
+  }
+}
+
+fn transition<S>(machine: Machine<S>, state: S) {
+  machine.state = state
+}
+
+export {
+  Machine,
+  transition
+}

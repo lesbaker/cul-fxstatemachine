@@ -15,6 +15,8 @@
 # restart natively and a reload in the Playground, which makes that one
 # directory durable.
 
+import fsm from './state.cul'
+
 # --- palette ---------------------------------------------------------------
 let C1 = Canvas.rgba(0xe6, 0xe6, 0xc0)  # background / lightest
 let C2 = Canvas.rgba(0xb4, 0x94, 0xb7)
@@ -412,12 +414,15 @@ enum Mode {
 }
 
 class App {
+  machine: Machine
+
   new() {
-    self.mode = Mode.Initial
+    self.machine = fsm.Machine(Mode.Initial)
   }
 
   enter_title() {
-    self.mode = Mode.Title
+    fsm.transition(self.machine, Mode.Title)
+
     self.rocci = Player()
     self.rocci_anim = idle_anim(self.session.fc)
     self.title = {
@@ -429,7 +434,8 @@ class App {
   enter_game() {
     let fc = self.session.fc
 
-    self.mode = Mode.Game
+    fsm.transition(self.machine, Mode.Game)
+
     self.rocci = Player(
       last_flap_frame: fc
     )
@@ -451,7 +457,8 @@ class App {
   }
 
   enter_over() {
-    self.mode = Mode.Over
+    fsm.transition(self.machine, Mode.Over)
+
     self.rocci = Player(
       y: self.rocci.y,
       vel: self.rocci.vel,
@@ -500,7 +507,7 @@ class App {
 
   tick() {
     handle {
-      match self.mode {
+      match self.machine.state {
         m: Initial => self.tick_initial(),
         m: Title => self.tick_title(),
         m: Game => self.tick_game(),
