@@ -421,8 +421,6 @@ class App {
   }
 
   enter_title() {
-    fsm.transition(self.machine, Mode.Title)
-
     self.rocci = Player()
     self.rocci_anim = idle_anim(self.session.fc)
     self.title = {
@@ -433,8 +431,6 @@ class App {
 
   enter_game() {
     let fc = self.session.fc
-
-    fsm.transition(self.machine, Mode.Game)
 
     self.rocci = Player(
       last_flap_frame: fc
@@ -457,8 +453,6 @@ class App {
   }
 
   enter_over() {
-    fsm.transition(self.machine, Mode.Over)
-
     self.rocci = Player(
       y: self.rocci.y,
       vel: self.rocci.vel,
@@ -507,7 +501,7 @@ class App {
 
   tick() {
     handle {
-      match self.machine.state {
+      match self.machine._state {
         m: Initial => self.tick_initial(),
         m: Title => self.tick_title(),
         m: Game => self.tick_game(),
@@ -588,6 +582,7 @@ class App {
     self.rocci = Player()
     perform seed_prng(0)
 
+    self.machine.transition(Mode.Title)
     self.enter_title()
   }
 
@@ -600,7 +595,9 @@ class App {
     let player_draw_y = Player.START_Y + idle_shift(self.title.start_frame, self.session.fc)
     perform draw_animation(self.rocci_anim, self.session.fc, Player.X, player_draw_y)
 
+    self.machine.transition(Mode.Final) if Canvas.key('escape')
     self.enter_final() if Canvas.key('escape')
+    self.machine.transition(Mode.Game) if self.start_input()
     self.enter_game() if self.start_input()
   }
 
@@ -654,7 +651,9 @@ class App {
     perform draw_animation(self.rocci_anim, fc, Player.X, self.rocci.y)
     perform draw_game_info(self.game.score)
 
+    self.machine.transition(Mode.Final) if Canvas.key('escape')
     self.enter_final() if Canvas.key('escape')
+    self.machine.transition(Mode.Over) if hit || self.rocci.y >= 134.0
     self.enter_over() if hit || self.rocci.y >= 134.0
   }
 
@@ -671,7 +670,9 @@ class App {
     perform draw_game_over_info(self.over.last_game_score, self.session.high_score)
     perform draw_animation(self.over.hiscore_anim, self.session.fc, 64, 0) if self.over.new_high
 
+    self.machine.transition(Mode.Final) if Canvas.key('escape')
     self.enter_final() if Canvas.key('escape')
+    self.machine.transition(Mode.Title) if self.restart_input()
     self.enter_title() if self.restart_input()
   }
 }
