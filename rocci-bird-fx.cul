@@ -508,13 +508,17 @@ class App {
 
   tick() {
     handle {
+      mut new_payload: Object = {}
+
       match self.machine._state {
-        m: Initial => self.tick_initial(),
-        m: Title => self.tick_title(),
-        m: Game => self.tick_game(),
-        m: Over => self.tick_over(),
+        m: Initial => new_payload = self.tick_initial(),
+        m: Title => new_payload = self.tick_title(),
+        m: Game => new_payload = self.tick_game(),
+        m: Over => new_payload = self.tick_over(),
         m: Final => Canvas.quit(),
       }
+
+      assign_all(self, new_payload)
     } with seed_prng(seed, resume) {
       Random.seed(seed)
 
@@ -578,7 +582,7 @@ class App {
     true
   }
 
-  tick_initial() {
+  tick_initial() -> Object {
     # Session state, alive across restarts.
     self.session = {
       interactive: IO.stdin_is_terminal(),
@@ -590,11 +594,10 @@ class App {
     self.rocci = Player()
     perform seed_prng(0)
 
-    new_payload = self.machine.transition(Mode.Title, self)
-    assign_all(self, new_payload)
+    self.machine.transition(Mode.Title, self)
   }
 
-  tick_title() {
+  tick_title() -> Object {
     update_session(self.session)
     perform clear_screen(C1)
 
@@ -604,16 +607,15 @@ class App {
     perform draw_animation(self.rocci_anim, self.session.fc, Player.X, player_draw_y)
 
     if (Canvas.key('escape')) {
-      let new_payload = self.machine.transition(Mode.Final, self)
-      assign_all(self, new_payload)
+      return self.machine.transition(Mode.Final, self)
     }
     if (self.start_input()) {
-      let new_payload = self.machine.transition(Mode.Game, self)
-      assign_all(self, new_payload)
+      return self.machine.transition(Mode.Game, self)
     }
+    return {}
   }
 
-  tick_game() {
+  tick_game() -> Object {
     update_session(self.session)
     perform clear_screen(C1)
 
@@ -664,16 +666,15 @@ class App {
     perform draw_game_info(self.game.score)
 
     if (Canvas.key('escape')) {
-      let new_payload = self.machine.transition(Mode.Final, self)
-      assign_all(self, new_payload)
+      return self.machine.transition(Mode.Final, self)
     }
     if (hit || self.rocci.y >= 134.0) {
-      let new_payload = self.machine.transition(Mode.Over, self)
-      assign_all(self, new_payload)
+      return self.machine.transition(Mode.Over, self)
     }
+    return {}
   }
 
-  tick_over() {
+  tick_over() -> Object {
     update_session(self.session)
     perform clear_screen(C1)
 
@@ -687,13 +688,12 @@ class App {
     perform draw_animation(self.over.hiscore_anim, self.session.fc, 64, 0) if self.over.new_high
 
     if (Canvas.key('escape')) {
-      let new_payload = self.machine.transition(Mode.Final, self)
-      assign_all(self, new_payload)
+      return self.machine.transition(Mode.Final, self)
     }
     if (self.restart_input()) {
-      let new_payload = self.machine.transition(Mode.Title, self)
-      assign_all(self, new_payload)
+      return self.machine.transition(Mode.Title, self)
     }
+    return {}
   }
 }
 
