@@ -1,13 +1,71 @@
+enum PayloadOp {
+  Insert(Any, Any),  # key, new value
+  Modify(Any, Any, Any),  # key, new value, old value
+  Delete(Any, Any),  # key, old value
+}
+
+let PayloadTransaction = {
+  new: fn (payload: Object) {
+    let deltas = Deque()
+    let payload = payload
+    let new_pay = {}
+    let insert_fn = fn (k, v) -> Nil {
+      throw "cannot add key `{k}` to payload: already exists" if payload.has(k)
+      deltas.push_back(PayloadOp.Insert(k, v))
+      nil
+    }
+    let modify_fn = fn (k, v) -> Nil {
+      throw "cannot modify key `{k}` in payload: does not exist" if !payload.has(k)
+      deltas.push_back(PayloadOp.Modify(k, v, payload[k]))
+      nil
+    }
+    let remove_fn = fn (k) -> Nil {
+      throw "cannot remove {k} from payload: does not exist" if !payload.has(k)
+      deltas.push_back(PayloadOp.Delete(k, payload[k]))
+    }
+
+    return {
+      ...payload,
+      add: insert_fn,
+      modify: modify_fn,
+      remove: remove_fn,
+      upsert: fn (k, v) -> Nil {
+        if (payload.has(k)) { modify_fn(k, v) } else { insert_fn(k, v) }
+      },
+      commit: fn () -> Object {
+        for delta in deltas {
+          match delta {
+            PayloadOp.Insert(key, new_val) => new_pay[key] = new_val,
+            PayloadOp.Modify(key, new_val, old_val) => new_pay[key] = new_val,
+            PayloadOp.Delete(key) => println("delete not supported yet"),
+          }
+        }
+        new_pay
+      },
+    }
+  }
+}
+
 class Machine<S> {
   _state: S
+  _on_enter: fn(S) -> S
 
-  new(initial: S) {
+  new(initial: S, on_enter: fn(S) -> S) {
     self._state = initial
+    self._on_enter = on_enter
   }
 
   # Unconditionally go to another state
-  transition(to_state: S) {
+  transition(to_state: S, payload: Object) -> Object {
     self._state = to_state
+
+    try {
+      let pay_trans = PayloadTransaction.new(payload)
+      self._on_enter(to_state, payload: pay_trans)
+      pay_trans.commit()
+    } catch {kind: 'DispatchError'} {
+      return {}  # Missing handler is not an error
+    }
   }
 }
 

@@ -413,65 +413,72 @@ enum Mode {
   Final, # entering this state closes the app
 }
 
+let assign_all = fn (target: Object, source: Object) {
+  for k, v in source {
+    target[k] = v
+  }
+}
+
+fn on_enter(state: Mode.Title, payload: Object) {
+  payload.upsert('rocci', Player())
+  payload.upsert('rocci_anim', idle_anim(payload.session.fc))
+  payload.upsert('title', {
+    plants: starting_plants(),
+    start_frame: payload.session.fc,
+  })
+}
+
+fn on_enter(state: Mode.Game, payload: Object) {
+  let fc = payload.session.fc
+
+  # The original reseeds from the frame count at the moment play begins, so
+  # the run feels randomly seeded (players rarely start on the same frame).
+  perform seed_prng(fc)
+  perform play_sound("flap")
+
+  payload.upsert('rocci', Player(last_flap_frame: fc))
+  payload.upsert('rocci_anim', flap_anim(fc))
+  payload.upsert('game', {
+    mut plants: payload.title.plants,
+    mut last_plant: Math.max(fc - 4, 0),
+    mut pipes: [],
+    mut last_pipe: fc,
+    mut score: 0,
+    mut max_score: 0,
+    mut ground_x: 0,
+    mut last_flap: true,
+  })
+}
+
+fn on_enter(state: Mode.Over, payload: Object) {
+  let new_high = payload.game.max_score > payload.session.high_score
+
+  perform save_high_score(payload.session.high_score) if new_high
+  perform play_sound("death")
+
+  let session = {...payload.session}
+  session.high_score = payload.game.max_score if new_high
+
+  payload.upsert('session', session)
+  payload.upsert('rocci', Player(
+    y: payload.rocci.y,
+    vel: payload.rocci.vel,
+  ))
+  payload.upsert('rocci_anim', fall_anim(payload.session.fc))
+  payload.upsert('over', {
+    last_game_score: payload.game.score,
+    new_high: new_high,
+    mut hiscore_anim: hiscore_anim(payload.session.fc),
+    plants: payload.game.plants,
+    ground_x: payload.game.ground_x,
+  })
+}
+
 class App {
   machine: Machine
 
   new() {
-    self.machine = fsm.Machine(Mode.Initial)
-  }
-
-  enter_title() {
-    self.rocci = Player()
-    self.rocci_anim = idle_anim(self.session.fc)
-    self.title = {
-      plants: starting_plants(),
-      start_frame: self.session.fc,
-    }
-  }
-
-  enter_game() {
-    let fc = self.session.fc
-
-    self.rocci = Player(
-      last_flap_frame: fc
-    )
-    self.rocci_anim = flap_anim(fc)
-    self.game = {
-      mut plants: self.title.plants,
-      mut last_plant: Math.max(fc - 4, 0),
-      mut pipes: [],
-      mut last_pipe: fc,
-      mut score: 0,
-      mut max_score: 0,
-      mut ground_x: 0,
-      mut last_flap: true,
-    }
-    # The original reseeds from the frame count at the moment play begins, so
-    # the run feels randomly seeded (players rarely start on the same frame).
-    perform seed_prng(fc)
-    perform play_sound("flap")
-  }
-
-  enter_over() {
-    self.rocci = Player(
-      y: self.rocci.y,
-      vel: self.rocci.vel,
-    )
-    self.rocci_anim = fall_anim(self.session.fc)
-    self.over = {
-      last_game_score: self.game.score,
-      new_high: self.game.max_score > self.session.high_score,
-      mut hiscore_anim: hiscore_anim(self.session.fc),
-      plants: self.game.plants,
-      ground_x: self.game.ground_x,
-    }
-    self.session.high_score = self.game.max_score if self.over.new_high
-    perform save_high_score(self.session.high_score) if self.over.new_high
-    perform play_sound("death")
-  }
-
-  enter_final() {
-    Canvas.quit()
+    self.machine = fsm.Machine(Mode.Initial, on_enter: on_enter)
   }
 
   # The "flap / start" action: A, up, or left-click held this frame.
@@ -506,6 +513,7 @@ class App {
         m: Title => self.tick_title(),
         m: Game => self.tick_game(),
         m: Over => self.tick_over(),
+        m: Final => Canvas.quit(),
       }
     } with seed_prng(seed, resume) {
       Random.seed(seed)
@@ -582,8 +590,8 @@ class App {
     self.rocci = Player()
     perform seed_prng(0)
 
-    self.machine.transition(Mode.Title)
-    self.enter_title()
+    new_payload = self.machine.transition(Mode.Title, self)
+    assign_all(self, new_payload)
   }
 
   tick_title() {
@@ -595,10 +603,14 @@ class App {
     let player_draw_y = Player.START_Y + idle_shift(self.title.start_frame, self.session.fc)
     perform draw_animation(self.rocci_anim, self.session.fc, Player.X, player_draw_y)
 
-    self.machine.transition(Mode.Final) if Canvas.key('escape')
-    self.enter_final() if Canvas.key('escape')
-    self.machine.transition(Mode.Game) if self.start_input()
-    self.enter_game() if self.start_input()
+    if (Canvas.key('escape')) {
+      let new_payload = self.machine.transition(Mode.Final, self)
+      assign_all(self, new_payload)
+    }
+    if (self.start_input()) {
+      let new_payload = self.machine.transition(Mode.Game, self)
+      assign_all(self, new_payload)
+    }
   }
 
   tick_game() {
@@ -651,10 +663,14 @@ class App {
     perform draw_animation(self.rocci_anim, fc, Player.X, self.rocci.y)
     perform draw_game_info(self.game.score)
 
-    self.machine.transition(Mode.Final) if Canvas.key('escape')
-    self.enter_final() if Canvas.key('escape')
-    self.machine.transition(Mode.Over) if hit || self.rocci.y >= 134.0
-    self.enter_over() if hit || self.rocci.y >= 134.0
+    if (Canvas.key('escape')) {
+      let new_payload = self.machine.transition(Mode.Final, self)
+      assign_all(self, new_payload)
+    }
+    if (hit || self.rocci.y >= 134.0) {
+      let new_payload = self.machine.transition(Mode.Over, self)
+      assign_all(self, new_payload)
+    }
   }
 
   tick_over() {
@@ -670,10 +686,14 @@ class App {
     perform draw_game_over_info(self.over.last_game_score, self.session.high_score)
     perform draw_animation(self.over.hiscore_anim, self.session.fc, 64, 0) if self.over.new_high
 
-    self.machine.transition(Mode.Final) if Canvas.key('escape')
-    self.enter_final() if Canvas.key('escape')
-    self.machine.transition(Mode.Title) if self.restart_input()
-    self.enter_title() if self.restart_input()
+    if (Canvas.key('escape')) {
+      let new_payload = self.machine.transition(Mode.Final, self)
+      assign_all(self, new_payload)
+    }
+    if (self.restart_input()) {
+      let new_payload = self.machine.transition(Mode.Title, self)
+      assign_all(self, new_payload)
+    }
   }
 }
 
