@@ -399,9 +399,8 @@ let idle_shift = fn (title_start_frame: Long, fc: Long) -> Long {
   if (Math.wrap(title_start_frame - fc, 40) > 20) { 0 } else { 1 }
 }
 
-let update_session = fn (s: Object) {
-  s.input.update()
-  s.fc += 1
+let update_session = fn (s: Object) -> Object {
+  { ...s, fc: s.fc + 1 }
 }
 
 # --- app -------------------------------------------------------------------
@@ -479,13 +478,14 @@ class App {
 
   new() {
     self.machine = fsm.Machine(Mode.Initial, on_enter: on_enter)
+    self.input = Canvas.Input()
   }
 
   # The "flap / start" action: A, up, or left-click held this frame.
   action_held() {
     let m = Canvas.mouse()
-    self.session.input.down(Canvas.A) ||
-      self.session.input.down(Canvas.UP) ||
+    self.input.down(Canvas.A) ||
+      self.input.down(Canvas.UP) ||
       m.buttons & 1 != 0
   }
   # In-game flap and title start read the action, with a simple autopilot when
@@ -501,12 +501,14 @@ class App {
   restart_input() {
     return true if !self.session.interactive
     let m = Canvas.mouse()
-    self.session.input.down(Canvas.B) ||
-      self.session.input.down(Canvas.RIGHT) ||
+    self.input.down(Canvas.B) ||
+      self.input.down(Canvas.RIGHT) ||
       m.buttons & 2 != 0
   }
 
   tick() {
+    self.input.update()
+
     handle {
       mut new_payload: Object = {}
 
@@ -586,7 +588,6 @@ class App {
     # Session state, alive across restarts.
     self.session = {
       interactive: IO.stdin_is_terminal(),
-      input: Canvas.Input(),
       mut high_score: perform load_high_score(),
       mut fc: 0,
     }
@@ -597,7 +598,7 @@ class App {
   }
 
   tick_title() -> Object {
-    update_session(self.session)
+    self.session = update_session(self.session)
     perform clear_screen(C1)
 
     perform draw_title_text()
@@ -615,7 +616,7 @@ class App {
   }
 
   tick_game() -> Object {
-    update_session(self.session)
+    self.session = update_session(self.session)
     perform clear_screen(C1)
 
     let fc = self.session.fc
@@ -674,7 +675,7 @@ class App {
   }
 
   tick_over() -> Object {
-    update_session(self.session)
+    self.session = update_session(self.session)
     perform clear_screen(C1)
 
     self.over.rocci = self.over.rocci.update(FlapData.NoFlap)
