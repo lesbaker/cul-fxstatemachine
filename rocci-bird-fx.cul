@@ -436,12 +436,13 @@ fn on_enter(state: Mode.Game, payload: Object) {
   perform play_sound("flap")
 
   payload.upsert('game', {
-    mut rocci: Player(last_flap_frame: fc),
-    mut rocci_anim: flap_anim(fc),
+    mut game_fc: 0,
+    mut rocci: Player(last_flap_frame: 0),
+    mut rocci_anim: flap_anim(0),
     mut plants: payload.title.plants,
-    mut last_plant: Math.max(fc - 4, 0),
+    mut last_plant: 0,
     mut pipes: [],
-    mut last_pipe: fc,
+    mut last_pipe: 0,
     mut score: 0,
     mut max_score: 0,
     mut ground_x: 0,
@@ -619,7 +620,7 @@ class App {
     self.session = update_session(self.session)
     perform clear_screen(C1)
 
-    let fc = self.session.fc
+    let fc = self.game.game_fc
     let flap_inp_down = self.flap_input()
     let flap_pressed = !self.game.last_flap && flap_inp_down
     let flap: FlapData = if flap_pressed && self.game.rocci.flap_allowed(fc) {
@@ -664,6 +665,8 @@ class App {
     let hit = self.game.rocci.collided(pipe_bboxes)
     perform draw_animation(self.game.rocci_anim, fc, Player.X, self.game.rocci.y)
     perform draw_game_info(self.game.score)
+
+    self.game.game_fc += 1
 
     if (Canvas.key('escape')) {
       return self.machine.transition(Mode.Final, self)
