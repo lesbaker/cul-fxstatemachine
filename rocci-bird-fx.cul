@@ -17,6 +17,33 @@
 
 import fsm from './state.cul'
 
+# Deterministic, random-access, 32-bit, fast hash function
+# created by Brian "Squirrel" Eiserloh ported to Culebra
+# http://eiserloh.net/noise/SquirrelNoise5.hpp
+let noise1d = fn (posX: Long, seed: Long) {
+  let SQ5_BIT_NOISE1: Long = 0xD2A80A3F
+  let SQ5_BIT_NOISE2: Long = 0xA884F197
+  let SQ5_BIT_NOISE3: Long = 0x6C736F4B
+  let SQ5_BIT_NOISE4: Long = 0xB79F3ABB
+  let SQ5_BIT_NOISE5: Long = 0x1B56C4F5
+  let MASK_32: Long = 0xFFFFFFFF
+
+  mut mangledBits: Long = posX
+
+  mangledBits = (mangledBits * SQ5_BIT_NOISE1) & MASK_32
+  mangledBits = (mangledBits + seed) & MASK_32
+  mangledBits ^= (mangledBits >> 9)
+  mangledBits = (mangledBits + SQ5_BIT_NOISE2) & MASK_32
+  mangledBits ^= (mangledBits >> 11)
+  mangledBits = (mangledBits * SQ5_BIT_NOISE3) & MASK_32
+  mangledBits ^= (mangledBits >> 13)
+  mangledBits = (mangledBits + SQ5_BIT_NOISE4) & MASK_32
+  mangledBits ^= (mangledBits >> 15)
+  mangledBits = (mangledBits * SQ5_BIT_NOISE5) & MASK_32
+  mangledBits ^= (mangledBits >> 17)
+  mangledBits
+}
+
 # --- palette ---------------------------------------------------------------
 let C1 = Canvas.rgba(0xe6, 0xe6, 0xc0)  # background / lightest
 let C2 = Canvas.rgba(0xb4, 0x94, 0xb7)
@@ -87,12 +114,13 @@ let GAP = 40
 let GROUND_Y = H - 13  # 147
 let PLANT_Y = H - 22   # 138
 let PLANT_TYPES = 30
+let PLANT_WIDTH = 12
 
 effect fn seed_prng(seed: Long)
 effect fn clear_screen(color: Object)
 effect fn play_sound(sound_name: String)
 effect fn draw_animation(anim: Anim, fc: Long, x: Long, y: Long)
-effect fn draw_background(ground: Long, plants: Array)
+effect fn draw_background(vp_base_x: Long, ground: Long, plants: Array)
 effect fn draw_pipes(pipes: Array)
 effect fn draw_title_text()
 effect fn draw_game_info(score: Long)
@@ -261,6 +289,36 @@ class Player {
   }
 }
 
+class World {
+  vp_base_x: Long  # Viewport left edge x coordinate
+  seed: Long
+
+  new(.seed) {
+    self.vp_base_x = 0
+  }
+
+  shift_vp_right() {
+    self.vp_base_x += 1
+  }
+
+  plants() -> Array<Object> {
+    let offset_left = (self.vp_base_x % PLANT_WIDTH)
+    let plant_area = W + offset_left
+    let partial_plant_on_r: Bool = (plant_area % PLANT_WIDTH) > 0
+    let num_plants = (plant_area / PLANT_WIDTH) + (partial_plant_on_r ? 1 : 0)
+
+    iota(num_plants)
+      .map(|i| {
+        let computed_x = (self.vp_base_x - offset_left) + (i * PLANT_WIDTH)
+        {
+          x: computed_x,
+          type: noise1d(computed_x, self.seed) % PLANT_TYPES
+        }
+      }
+    )
+  }
+}
+
 fn flap_allowed(rocci: Player, fc: Long) -> Bool {
   fc - rocci.last_flap_frame > Player.FLAP_DELAY
 }
@@ -348,11 +406,12 @@ let draw_ground = fn (x) {
   canv_sprites[SPR_IDX_GROUND].draw(x, GROUND_Y)
   canv_sprites[SPR_IDX_GROUND].draw(x + W, GROUND_Y)
 }
-let draw_plants = fn (plants) {
+let draw_plants = fn (base_x, plants) {
   for {x, type} in plants {
-    canv_sprites[SPR_IDX_PLANT_SHEET].draw_sub(x, PLANT_Y, type * 12, 0, 12, 12)
+    canv_sprites[SPR_IDX_PLANT_SHEET].draw_sub(x - base_x, PLANT_Y, type * 12, 0, 12, 12)
   }
 }
+
 let draw_score = fn (score, base_x, y) {
   let x = match score {
     ..10 => base_x + 8,
@@ -389,10 +448,6 @@ let save_high_score_to_file = fn (score) {
   }
 }
 
-let starting_plants = fn () {
-  iota(15).map(|i| {x: i * 12, type: Random.int(0, PLANT_TYPES)})
-}
-
 # Gives an y-axis drawing offset that helps animate Rocci
 # bobbing up and down on the title screen
 let idle_shift = fn (title_start_frame: Long, fc: Long) -> Long {
@@ -420,9 +475,9 @@ let assign_all = fn (target: Object, source: Object) {
 
 fn on_enter(state: Mode.Title, payload: Object) {
   payload.upsert('title', {
+    world: World(payload.session.fc),
     rocci: Player(),
     rocci_anim: idle_anim(payload.session.fc),
-    plants: starting_plants(),
     start_frame: payload.session.fc,
   })
 }
@@ -437,10 +492,9 @@ fn on_enter(state: Mode.Game, payload: Object) {
 
   payload.upsert('game', {
     mut game_fc: 0,
+    world: payload.title.world,
     mut rocci: Player(last_flap_frame: 0),
     mut rocci_anim: flap_anim(0),
-    mut plants: payload.title.plants,
-    mut last_plant: 0,
     mut pipes: [],
     mut last_pipe: 0,
     mut score: 0,
@@ -461,6 +515,7 @@ fn on_enter(state: Mode.Over, payload: Object) {
 
   payload.upsert('session', session)
   payload.upsert('over', {
+    world: payload.game.world,
     mut rocci: Player(
       y: payload.game.rocci.y,
       vel: payload.game.rocci.vel,
@@ -469,7 +524,6 @@ fn on_enter(state: Mode.Over, payload: Object) {
     last_game_score: payload.game.score,
     new_high: new_high,
     mut hiscore_anim: hiscore_anim(payload.session.fc),
-    plants: payload.game.plants,
     ground_x: payload.game.ground_x,
   })
 }
@@ -541,9 +595,9 @@ class App {
       cell.sprite.draw_to_canvas(draw_x.to_long(), draw_y.to_long())
 
       resume()
-    } with draw_background(ground, plants, resume) {
+    } with draw_background(vp_base_x, ground, plants, resume) {
       draw_ground(ground)
-      draw_plants(plants)
+      draw_plants(vp_base_x, plants)
 
       resume()
     } with draw_pipes(pipes, resume) {
@@ -603,7 +657,8 @@ class App {
     perform clear_screen(C1)
 
     perform draw_title_text()
-    perform draw_background(0, self.title.plants)
+    let plants = self.title.world.plants()
+    perform draw_background(self.title.world.vp_base_x, 0, plants)
     let player_draw_y = Player.START_Y + idle_shift(self.title.start_frame, self.session.fc)
     perform draw_animation(self.title.rocci_anim, self.session.fc, Player.X, player_draw_y)
 
@@ -618,6 +673,7 @@ class App {
 
   tick_game() -> Object {
     self.session = update_session(self.session)
+    self.game.world.shift_vp_right()
     perform clear_screen(C1)
 
     let fc = self.game.game_fc
@@ -643,11 +699,6 @@ class App {
     self.game.pipes = moved_pipes.filter(|p| p.x >= -20)
 
     # plants: spawn, move, cull
-    if fc - self.game.last_plant > 12 {
-      self.game.plants.push({x: W, type: Random.int(0, PLANT_TYPES)})
-      self.game.last_plant = fc
-    }
-    self.game.plants = self.game.plants.map(shift_left).filter(|p| p.x >= -12)
 
     self.game.rocci = self.game.rocci.update(flap)
 
@@ -657,7 +708,7 @@ class App {
     perform play_sound("point") if gained > 0
 
     perform draw_pipes(self.game.pipes)
-    perform draw_background(self.game.ground_x, self.game.plants)
+    perform draw_background(self.game.world.vp_base_x, self.game.ground_x, self.game.world.plants())
 
     let pipe_bboxes = self.game.pipes.flat_map(
       |p| [{x: p.x, y: p.gap_start - 160, w: 20, h: 160}, {x: p.x, y: p.gap_start + GAP, w: 20, h: 160}]
@@ -684,7 +735,7 @@ class App {
     self.over.rocci = self.over.rocci.update(FlapData.NoFlap)
 
     perform draw_pipes(self.game.pipes)
-    perform draw_background(self.over.ground_x, self.over.plants)
+    perform draw_background(self.over.world.vp_base_x, self.over.ground_x, self.over.world.plants())
     perform draw_animation(self.over.rocci_anim, self.session.fc, Player.X, self.over.rocci.y.to_long())
 
     perform draw_game_over_info(self.over.last_game_score, self.session.high_score)
