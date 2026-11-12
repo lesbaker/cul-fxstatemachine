@@ -289,27 +289,43 @@ class Player {
   }
 }
 
+@value
+class Viewport {
+  x: Long  # The left edge x (base) world coordinate
+  width: Long
+
+  new(.x, .width) {}
+
+  shift_right(amount: Long = 1) -> Viewport {
+    Viewport(self.x + amount, self.width)
+  }
+
+  to_world(vp_x: Long) -> Long {
+    self.x + vp_x
+  }
+}
+
 class World {
-  vp_base_x: Long  # Viewport left edge x coordinate
+  vp: Viewport
   seed: Long
 
   new(.seed) {
-    self.vp_base_x = 0
+    self.vp = Viewport(0, W)
   }
 
   shift_vp_right() {
-    self.vp_base_x += 1
+    self.vp = self.vp.shift_right()
   }
 
   plants() -> Array<Object> {
-    let offset_left = (self.vp_base_x % PLANT_WIDTH)
+    let offset_left = (self.vp.x % PLANT_WIDTH)
     let plant_area = W + offset_left
     let partial_plant_on_r: Bool = (plant_area % PLANT_WIDTH) > 0
     let num_plants = (plant_area / PLANT_WIDTH) + (partial_plant_on_r ? 1 : 0)
 
     iota(num_plants)
       .map(|i| {
-        let computed_x = (self.vp_base_x - offset_left) + (i * PLANT_WIDTH)
+        let computed_x = (self.vp.x - offset_left) + (i * PLANT_WIDTH)
         {
           x: computed_x,
           type: noise1d(computed_x, self.seed) % PLANT_TYPES
@@ -658,7 +674,7 @@ class App {
 
     perform draw_title_text()
     let plants = self.title.world.plants()
-    perform draw_background(self.title.world.vp_base_x, 0, plants)
+    perform draw_background(self.title.world.vp.x, 0, plants)
     let player_draw_y = Player.START_Y + idle_shift(self.title.start_frame, self.session.fc)
     perform draw_animation(self.title.rocci_anim, self.session.fc, Player.X, player_draw_y)
 
@@ -708,7 +724,7 @@ class App {
     perform play_sound("point") if gained > 0
 
     perform draw_pipes(self.game.pipes)
-    perform draw_background(self.game.world.vp_base_x, self.game.ground_x, self.game.world.plants())
+    perform draw_background(self.game.world.vp.x, self.game.ground_x, self.game.world.plants())
 
     let pipe_bboxes = self.game.pipes.flat_map(
       |p| [{x: p.x, y: p.gap_start - 160, w: 20, h: 160}, {x: p.x, y: p.gap_start + GAP, w: 20, h: 160}]
@@ -735,7 +751,7 @@ class App {
     self.over.rocci = self.over.rocci.update(FlapData.NoFlap)
 
     perform draw_pipes(self.game.pipes)
-    perform draw_background(self.over.world.vp_base_x, self.over.ground_x, self.over.world.plants())
+    perform draw_background(self.over.world.vp.x, self.over.ground_x, self.over.world.plants())
     perform draw_animation(self.over.rocci_anim, self.session.fc, Player.X, self.over.rocci.y.to_long())
 
     perform draw_game_over_info(self.over.last_game_score, self.session.high_score)
