@@ -287,6 +287,16 @@ class Player {
       }
     }
   }
+
+  update_over() {
+    let vel = self.vel + GRAVITY
+
+    Player(
+      y: Math.min(self.y + vel, 134.0),
+      vel: vel,
+      last_flap_frame: self.last_flap_frame,
+    )
+  }
 }
 
 @value
@@ -748,7 +758,7 @@ class App {
     self.session = update_session(self.session)
     perform clear_screen(C1)
 
-    self.over.rocci = self.over.rocci.update(FlapData.NoFlap)
+    self.over.rocci = self.over.rocci.update_over()
 
     perform draw_pipes(self.game.pipes)
     perform draw_background(self.over.world.vp.x, self.over.ground_x, self.over.world.plants())
