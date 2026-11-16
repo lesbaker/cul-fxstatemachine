@@ -115,13 +115,14 @@ let GROUND_Y = H - 13  # 147
 let PLANT_Y = H - 22   # 138
 let PLANT_TYPES = 30
 let PLANT_WIDTH = 12
+let PIPE_IVAL = 90  # Interval between pipe spawns
+let PIPE_WIDTH = 20
 
 effect fn seed_prng(seed: Long)
 effect fn clear_screen(color: Object)
 effect fn play_sound(sound_name: String)
 effect fn draw_animation(anim: Anim, fc: Long, x: Long, y: Long)
-effect fn draw_background(vp_base_x: Long, ground: Long, plants: Array)
-effect fn draw_pipes(pipes: Array)
+effect fn draw_background(vp: Viewport, ground: Long, plants: Array, pipes: PipesOnScreen)
 effect fn draw_title_text()
 effect fn draw_game_info(score: Long)
 effect fn draw_game_over_info(score: Long, high_score: Long)
@@ -250,7 +251,7 @@ enum FlapData {
 }
 
 class Player {
-  static X = 70
+  static START_X = 70
   static START_Y = 40
   # How long (in frames: 60 fps assumed) to throttle the player
   # from being able to flap Rocci's wings again
@@ -261,16 +262,18 @@ class Player {
   static BB_SHRINK_W = 4
   static BB_SHRINK_H = 4
 
+  x: Long
   y: Float
   vel: Float
   last_flap_frame: Long
 
-  new(.y = to_float(Player.START_Y), .vel = JUMP, .last_flap_frame = 0) {}
+  new(.x = Player.START_X, .y = to_float(Player.START_Y), .vel = JUMP, .last_flap_frame = 0) {}
 
   update(flap: FlapData) -> Player {
     match flap {
       FlapData.Happened(frame) => {
         Player(
+          x: self.x + 1,
           y: Math.min(self.y + JUMP, 134.0),
           vel: JUMP,
           last_flap_frame: frame,
@@ -280,6 +283,7 @@ class Player {
         let vel = self.vel + GRAVITY
 
         Player(
+          x: self.x + 1,
           y: Math.min(self.y + vel, 134.0),
           vel: vel,
           last_flap_frame: self.last_flap_frame,
@@ -292,6 +296,7 @@ class Player {
     let vel = self.vel + GRAVITY
 
     Player(
+      x: self.x,
       y: Math.min(self.y + vel, 134.0),
       vel: vel,
       last_flap_frame: self.last_flap_frame,
@@ -310,6 +315,12 @@ class Viewport {
     Viewport(self.x + amount, self.width)
   }
 
+  # Returns the given world-space coordinate relative to this viewport
+  to_vp(world_x: Long) -> Long {
+    world_x - self.x
+  }
+
+  # Returns the given viewport-relative coordinate translated to world space
   to_world(vp_x: Long) -> Long {
     self.x + vp_x
   }
@@ -343,6 +354,80 @@ class World {
       }
     )
   }
+}
+
+# The computation of the pipe index range lower..=upper is based
+# on the following linear inequality:
+#   x_base <= Ix + (W + I) <= x_max
+# where I is the interval between pipe spawns and W is the viewport width.
+#
+# The first pipe (index 0) starts at x coordinate (W + I) because,
+# in the original code, a counter increments to the pipe interval value (I)
+# before the first spawn happens at the right edge of the screen (W).
+#
+# Isolating the result variable we get:
+# (x_base - W - I) / I <= x <= (x_max - W - I) / I
+# Since x_max = ViewportX + W then W cancels out and we finally have:
+# (x_base - W - I) / I <= x <= (vp.x - I) / I
+# Then since the result is in the integer domain
+# we ceil the lower bound and floor the upper
+class PipesOnScreen {
+  data: Array<Object>
+
+  new() {
+    self.data = []
+  }
+
+  new(world: World) {
+    let x_base = world.vp.x - PIPE_WIDTH
+    let seed = world.seed
+    let lower = Math.ceil((x_base - W - PIPE_IVAL) / PIPE_IVAL.to_float())
+    let upper = Math.floor((world.vp.x - PIPE_IVAL) / PIPE_IVAL.to_float())
+    let FIRST_PIPE_X: Long = W + PIPE_IVAL
+
+    self.data = range(lower, upper + 1)
+      .filter(|i| i >= 0)  # eliminate spurious results
+      .map(|i| {
+        idx: i,
+        x: PIPE_IVAL * i + FIRST_PIPE_X,
+        gap_start: (noise1d(i, seed) % 16) * 5 + 10,
+      })
+      .collect()
+  }
+}
+
+fn draw(pipes: PipesOnScreen, vp: Viewport) {
+  for {x, gap_start} in pipes.data {
+    canv_sprites[SPR_IDX_PIPE].draw(  # top pipe, flipped vertically
+      vp.to_vp(x),
+      gap_start - H,
+      false, true
+    )
+    canv_sprites[SPR_IDX_PIPE].draw(  # bottom pipe
+      vp.to_vp(x),
+      gap_start + GAP
+    )
+  }
+}
+
+# Returns index of last pipe on-screen that Rocci has passed;
+# -1 if he has not passed one
+#
+# A return of -1 does NOT mean that Rocci hasn't passed a pipe this game
+fn last_passed(pipes: PipesOnScreen, rocci: Player) -> Long {
+  let pipe = pipes.data.iter().find(|p| rocci.x >= p.x)
+
+  pipe?.idx ?? -1
+}
+
+# Return the bounding boxes for the pipes on-screen
+fn compute_bboxes(pipes: PipesOnScreen) -> Array<Object> {
+  pipes.data.flat_map(
+    |p| [
+      {x: p.x, y: p.gap_start - 160, w: 20, h: 160},
+      {x: p.x, y: p.gap_start + GAP, w: 20, h: 160}
+    ]
+  )
 }
 
 fn flap_allowed(rocci: Player, fc: Long) -> Bool {
@@ -403,7 +488,7 @@ fn collided(rocci: Player, pipe_bboxes: Array) -> Bool {
   # we keep the collision box pinned to the top of the screen
   let coll_y = Math.clamp(rocci.y.to_long(), 0, 134)
   let rocci_bbox = {
-    x: Player.X + Player.BB_SHRINK_W,
+    x: rocci.x + Player.BB_SHRINK_W,
     y: coll_y + Player.BB_SHRINK_H,
     w: 16 - 2 * Player.BB_SHRINK_W,
     h: 16 - 2 * Player.BB_SHRINK_H,
@@ -427,7 +512,6 @@ fn collided(rocci: Player, pipe_bboxes: Array) -> Bool {
 }
 
 # --- drawing helpers -------------------------------------------------------
-let shift_left = |p| {...p, x: p.x - 1}
 let draw_ground = fn (x) {
   canv_sprites[SPR_IDX_GROUND].draw(x, GROUND_Y)
   canv_sprites[SPR_IDX_GROUND].draw(x + W, GROUND_Y)
@@ -521,8 +605,7 @@ fn on_enter(state: Mode.Game, payload: Object) {
     world: payload.title.world,
     mut rocci: Player(last_flap_frame: 0),
     mut rocci_anim: flap_anim(0),
-    mut pipes: [],
-    mut last_pipe: 0,
+    mut last_pipe_scored_idx: -1,
     mut score: 0,
     mut max_score: 0,
     mut ground_x: 0,
@@ -543,6 +626,7 @@ fn on_enter(state: Mode.Over, payload: Object) {
   payload.upsert('over', {
     world: payload.game.world,
     mut rocci: Player(
+      x: payload.game.rocci.x,
       y: payload.game.rocci.y,
       vel: payload.game.rocci.vel,
     ),
@@ -621,16 +705,10 @@ class App {
       cell.sprite.draw_to_canvas(draw_x.to_long(), draw_y.to_long())
 
       resume()
-    } with draw_background(vp_base_x, ground, plants, resume) {
+    } with draw_background(vp, ground, plants, pipes, resume) {
+      pipes.draw(vp)
       draw_ground(ground)
-      draw_plants(vp_base_x, plants)
-
-      resume()
-    } with draw_pipes(pipes, resume) {
-      for {x, gap_start} in pipes {
-        canv_sprites[SPR_IDX_PIPE].draw(x, gap_start - H, false, true)  # top pipe, flipped vertically
-        canv_sprites[SPR_IDX_PIPE].draw(x, gap_start + GAP)             # bottom pipe
-      }
+      draw_plants(vp.x, plants)
 
       resume()
     } with draw_title_text(resume) {
@@ -684,9 +762,9 @@ class App {
 
     perform draw_title_text()
     let plants = self.title.world.plants()
-    perform draw_background(self.title.world.vp.x, 0, plants)
+    perform draw_background(self.title.world.vp, 0, plants, PipesOnScreen())
     let player_draw_y = Player.START_Y + idle_shift(self.title.start_frame, self.session.fc)
-    perform draw_animation(self.title.rocci_anim, self.session.fc, Player.X, player_draw_y)
+    perform draw_animation(self.title.rocci_anim, self.session.fc, Player.START_X, player_draw_y)
 
     if (Canvas.key('escape')) {
       return self.machine.transition(Mode.Final, self)
@@ -699,7 +777,6 @@ class App {
 
   tick_game() -> Object {
     self.session = update_session(self.session)
-    self.game.world.shift_vp_right()
     perform clear_screen(C1)
 
     let fc = self.game.game_fc
@@ -715,34 +792,32 @@ class App {
     self.game.last_flap = flap_inp_down
     perform play_sound("flap") if type_of(flap) == 'Happened'
 
-    # pipes: spawn, move (scoring when a pipe crosses Player.X - 2), cull
-    if fc - self.game.last_pipe > 90 {
-      self.game.pipes.push({x: W, gap_start: Random.int(0, 16) * 5 + 10})
-      self.game.last_pipe = fc
-    }
-    let moved_pipes = self.game.pipes.map(shift_left)
-    let gained = moved_pipes.filter(|p| p.x == Player.X - 2).size()
-    self.game.pipes = moved_pipes.filter(|p| p.x >= -20)
-
-    # plants: spawn, move, cull
+    let pipes = PipesOnScreen(self.game.world)
+    let last_pipe_scored_idx = pipes.last_passed(self.game.rocci)
 
     self.game.rocci = self.game.rocci.update(flap)
-
-    self.game.score = Math.min(self.game.score + gained, 255)
-    self.game.max_score = Math.max(self.game.score, self.game.max_score)
     self.game.ground_x = (self.game.ground_x - 1) % W
-    perform play_sound("point") if gained > 0
 
-    perform draw_pipes(self.game.pipes)
-    perform draw_background(self.game.world.vp.x, self.game.ground_x, self.game.world.plants())
+    # Did we just score a point?
+    if last_pipe_scored_idx > self.game.last_pipe_scored_idx {
+      self.game.last_pipe_scored_idx = last_pipe_scored_idx
+      self.game.score = Math.min(last_pipe_scored_idx + 1, 255)
+      self.game.max_score = Math.max(self.game.score, self.game.max_score)
+      perform play_sound("point")
+    }
 
-    let pipe_bboxes = self.game.pipes.flat_map(
-      |p| [{x: p.x, y: p.gap_start - 160, w: 20, h: 160}, {x: p.x, y: p.gap_start + GAP, w: 20, h: 160}]
+    perform draw_background(
+      self.game.world.vp,
+      self.game.ground_x,
+      self.game.world.plants(),
+      pipes,
     )
-    let hit = self.game.rocci.collided(pipe_bboxes)
-    perform draw_animation(self.game.rocci_anim, fc, Player.X, self.game.rocci.y)
+
+    let hit = self.game.rocci.collided(pipes.compute_bboxes())
+    perform draw_animation(self.game.rocci_anim, fc, self.game.world.vp.to_vp(self.game.rocci.x), self.game.rocci.y)
     perform draw_game_info(self.game.score)
 
+    self.game.world.shift_vp_right()
     self.game.game_fc += 1
 
     if (Canvas.key('escape')) {
@@ -760,9 +835,15 @@ class App {
 
     self.over.rocci = self.over.rocci.update_over()
 
-    perform draw_pipes(self.game.pipes)
-    perform draw_background(self.over.world.vp.x, self.over.ground_x, self.over.world.plants())
-    perform draw_animation(self.over.rocci_anim, self.session.fc, Player.X, self.over.rocci.y.to_long())
+    let pipes = PipesOnScreen(self.over.world)
+
+    perform draw_background(
+      self.over.world.vp,
+      self.over.ground_x,
+      self.over.world.plants(),
+      pipes,
+    )
+    perform draw_animation(self.over.rocci_anim, self.session.fc, self.over.world.vp.to_vp(self.over.rocci.x), self.over.rocci.y.to_long())
 
     perform draw_game_over_info(self.over.last_game_score, self.session.high_score)
     perform draw_animation(self.over.hiscore_anim, self.session.fc, 64, 0) if self.over.new_high
