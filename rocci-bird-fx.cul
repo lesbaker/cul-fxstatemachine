@@ -119,7 +119,7 @@ let PIPE_IVAL = 90  # Interval between pipe spawns
 let PIPE_WIDTH = 20
 
 effect fn seed_prng(seed: Long)
-effect fn clear_screen(color: Object)
+effect fn clear_screen(color: Long)
 effect fn play_sound(sound_name: String)
 effect fn draw_animation(anim: Anim, fc: Long, x: Long, y: Long)
 effect fn draw_background(vp: Viewport, ground: Long, plants: Array, pipes: PipesOnScreen)
