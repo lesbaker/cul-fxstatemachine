@@ -177,7 +177,7 @@ class GameSprite {
   src_x: Long
   src_width: Long
 
-  new(.source, .src_x, .src_width) {}
+  new(@source, @src_x, @src_width) {}
 }
 
 fn draw_to_canvas(spr: GameSprite, draw_x: Long, draw_y: Long) {
@@ -191,14 +191,14 @@ class AnimCell {
   sprite: GameSprite
   frames: Long
 
-  new(.sprite, .frames) {}
+  new(@sprite, @frames) {}
 }
 
 class AnimTimeline {
   timeline: Array<AnimCell>
   index_tbl: Array<Long>
 
-  new(.timeline: Array<AnimCell>) {
+  new(@timeline: Array<AnimCell>) {
     # Compute look up table mapping frame number to the
     # corresponding cell index in its animation timeline
     self.index_tbl = timeline.iter()
@@ -223,7 +223,7 @@ class Anim {
   oneshot: Bool
   start_fc: Long
 
-  new(.timeline: Long, .start_fc: Long, .oneshot = false) {}
+  new(@timeline: Long, @start_fc: Long, @oneshot = false) {}
 
   reset(start_fc) -> Anim {
     Anim(
@@ -267,7 +267,7 @@ class Player {
   vel: Float
   last_flap_frame: Long
 
-  new(.x = Player.START_X, .y = to_float(Player.START_Y), .vel = JUMP, .last_flap_frame = 0) {}
+  new(@x = Player.START_X, @y = to_float(Player.START_Y), @vel = JUMP, @last_flap_frame = 0) {}
 
   update(flap: FlapData) -> Player {
     match flap {
@@ -309,7 +309,7 @@ class Viewport {
   x: Long  # The left edge x (base) world coordinate
   width: Long
 
-  new(.x, .width) {}
+  new(@x, @width) {}
 
   shift_right(amount: Long = 1) -> Viewport {
     Viewport(self.x + amount, self.width)
@@ -330,7 +330,7 @@ class World {
   vp: Viewport
   seed: Long
 
-  new(.seed) {
+  new(@seed) {
     self.vp = Viewport(0, W)
   }
 
