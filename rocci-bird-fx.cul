@@ -814,7 +814,7 @@ class App {
     )
 
     let hit = self.game.rocci.collided(pipes.compute_bboxes())
-    perform draw_animation(self.game.rocci_anim, fc, self.game.world.vp.to_vp(self.game.rocci.x), self.game.rocci.y)
+    perform draw_animation(self.game.rocci_anim, fc, self.game.world.vp.to_vp(self.game.rocci.x), self.game.rocci.y.to_long())
     perform draw_game_info(self.game.score)
 
     self.game.world.shift_vp_right()
