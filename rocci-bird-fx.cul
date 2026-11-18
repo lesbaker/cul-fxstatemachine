@@ -334,8 +334,10 @@ class World {
     self.vp = Viewport(0, W)
   }
 
+  new(@vp, @seed) {}
+
   shift_vp_right() {
-    self.vp = self.vp.shift_right()
+    World(@vp.shift_right(), @seed)
   }
 
   plants() -> Array<Object> {
@@ -602,7 +604,7 @@ fn on_enter(state: Mode.Game, payload: Object) {
 
   payload.upsert('game', {
     mut game_fc: 0,
-    world: payload.title.world,
+    mut world: payload.title.world,
     mut rocci: Player(last_flap_frame: 0),
     mut rocci_anim: flap_anim(0),
     mut last_pipe_scored_idx: -1,
@@ -817,7 +819,7 @@ class App {
     perform draw_animation(self.game.rocci_anim, fc, self.game.world.vp.to_vp(self.game.rocci.x), self.game.rocci.y.to_long())
     perform draw_game_info(self.game.score)
 
-    self.game.world.shift_vp_right()
+    self.game.world = self.game.world.shift_vp_right()
     self.game.game_fc += 1
 
     if (Canvas.key('escape')) {
