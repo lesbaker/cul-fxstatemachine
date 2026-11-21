@@ -8,7 +8,6 @@ let PayloadTransaction = {
   new: fn (payload: Object) {
     let deltas = Deque()
     let payload = payload
-    let new_pay = {}
     let insert_fn = fn (k, v) -> Nil {
       throw "cannot add key `{k}` to payload: already exists" if payload.has(k)
       deltas.push_back(PayloadOp.Insert(k, v))
@@ -33,6 +32,7 @@ let PayloadTransaction = {
         if (payload.has(k)) { modify_fn(k, v) } else { insert_fn(k, v) }
       },
       commit: fn () -> Object {
+        let new_pay = {...payload}
         for delta in deltas {
           match delta {
             PayloadOp.Insert(key, new_val) => new_pay[key] = new_val,

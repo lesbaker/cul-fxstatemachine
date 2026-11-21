@@ -640,6 +640,147 @@ fn on_enter(state: Mode.Over, payload: Object) {
   })
 }
 
+fn tick_initial(this: Object) -> Object? {
+  # Session state, alive across restarts.
+  this.session = {
+    interactive: IO.stdin_is_terminal(),
+    mut high_score: perform load_high_score(),
+    mut fc: 0,
+  }
+  # Per-mode state
+  perform seed_prng(0)
+
+  Mode.Title
+}
+
+fn tick_title(mut this: Object) -> Object? {
+  let action_held = fn () {
+    let m = Canvas.mouse()
+    this.input.down(Canvas.A) ||
+      this.input.down(Canvas.UP) ||
+      m.buttons & 1 != 0
+  }
+  let start_input = fn () {
+    this.session.interactive ? action_held() : true
+  }
+  this.session = update_session(this.session)
+  perform clear_screen(C1)
+
+  perform draw_title_text()
+  let plants = this.title.world.plants()
+  perform draw_background(this.title.world.vp, 0, plants, PipesOnScreen())
+  let player_draw_y = Player.START_Y + idle_shift(this.title.start_frame, this.session.fc)
+  perform draw_animation(this.title.rocci_anim, this.session.fc, Player.START_X, player_draw_y)
+
+  if (Canvas.key('escape')) {
+    return Mode.Final
+  }
+  if (this.start_input()) {
+    return Mode.Game
+  }
+  nil
+}
+
+fn tick_game(this: Object) -> Object? {
+  let action_held = fn () {
+    let m = Canvas.mouse()
+    this.input.down(Canvas.A) ||
+      this.input.down(Canvas.UP) ||
+      m.buttons & 1 != 0
+  }
+  let flap_input = fn () {
+    this.session.interactive
+      ? action_held()
+      : this.game.rocci.vel > 0.0 && this.game.rocci.y > 70.0
+  }
+  this.session = update_session(this.session)
+  perform clear_screen(C1)
+
+  let fc = this.game.game_fc
+  let flap_inp_down = flap_input()
+  let flap_pressed = !this.game.last_flap && flap_inp_down
+  let flap: FlapData = if flap_pressed && this.game.rocci.flap_allowed(fc) {
+    this.game.rocci_anim = this.game.rocci_anim.reset(fc)
+    FlapData.Happened(fc)
+  } else {
+    FlapData.NoFlap
+  }
+
+  this.game.last_flap = flap_inp_down
+  perform play_sound("flap") if type_of(flap) == 'Happened'
+
+  let pipes = PipesOnScreen(this.game.world)
+  let last_pipe_scored_idx = pipes.last_passed(this.game.rocci)
+
+  this.game.rocci = this.game.rocci.update(flap)
+  this.game.ground_x = (this.game.ground_x - 1) % W
+
+  # Did we just score a point?
+  if last_pipe_scored_idx > this.game.last_pipe_scored_idx {
+    this.game.last_pipe_scored_idx = last_pipe_scored_idx
+    this.game.score = Math.min(last_pipe_scored_idx + 1, 255)
+    this.game.max_score = Math.max(this.game.score, this.game.max_score)
+    perform play_sound("point")
+  }
+
+  perform draw_background(
+    this.game.world.vp,
+    this.game.ground_x,
+    this.game.world.plants(),
+    pipes,
+  )
+
+  let hit = this.game.rocci.collided(pipes.compute_bboxes())
+  perform draw_animation(this.game.rocci_anim, fc, this.game.world.vp.to_vp(this.game.rocci.x), this.game.rocci.y.to_long())
+  perform draw_game_info(this.game.score)
+
+  this.game.world = this.game.world.shift_vp_right()
+  this.game.game_fc += 1
+
+  if (Canvas.key('escape')) {
+    return Mode.Final
+  }
+  if (hit || this.game.rocci.y >= 134.0) {
+    return Mode.Over
+  }
+  nil
+}
+
+fn tick_over(this: Object) -> Object? {
+  let restart_input = fn () {
+    return true if !this.session.interactive
+    let m = Canvas.mouse()
+    this.input.down(Canvas.B) ||
+      this.input.down(Canvas.RIGHT) ||
+      m.buttons & 2 != 0
+  }
+  this.session = update_session(this.session)
+  perform clear_screen(C1)
+
+  this.over.rocci = this.over.rocci.update_over()
+
+  let pipes = PipesOnScreen(this.over.world)
+
+  perform draw_background(
+    this.over.world.vp,
+    this.over.ground_x,
+    this.over.world.plants(),
+    pipes,
+  )
+  perform draw_animation(this.over.rocci_anim, this.session.fc, this.over.world.vp.to_vp(this.over.rocci.x), this.over.rocci.y.to_long())
+
+  perform draw_game_over_info(this.over.last_game_score, this.session.high_score)
+  perform draw_animation(this.over.hiscore_anim, this.session.fc, 64, 0) if this.over.new_high
+
+  if (Canvas.key('escape')) {
+    return Mode.Final
+  }
+  if (this.restart_input()) {
+    return Mode.Title
+  }
+  nil
+}
+
 class App {
   machine: Machine
 
@@ -677,17 +818,25 @@ class App {
     self.input.update()
 
     handle {
-      mut new_payload: Object = {}
+      let payload = {}
+      assign_all(payload, self)
+      payload.remove('machine')
+      mut new_state = {}
 
       match self.machine._state {
-        m: Initial => new_payload = self.tick_initial(),
-        m: Title => new_payload = self.tick_title(),
-        m: Game => new_payload = self.tick_game(),
-        m: Over => new_payload = self.tick_over(),
+        m: Initial => new_state = tick_initial(payload),
+        m: Title => new_state = tick_title(payload),
+        m: Game => new_state = tick_game(payload),
+        m: Over => new_state = tick_over(payload),
         m: Final => Canvas.quit(),
       }
 
-      assign_all(self, new_payload)
+      if new_state != nil {
+        let modded_payload = self.machine.transition(new_state, payload)
+        assign_all(self, modded_payload)
+      } else {
+        assign_all(self, payload)
+      }
     } with seed_prng(seed, resume) {
       Random.seed(seed)
 
@@ -743,120 +892,6 @@ class App {
     }
 
     true
-  }
-
-  tick_initial() -> Object {
-    # Session state, alive across restarts.
-    self.session = {
-      interactive: IO.stdin_is_terminal(),
-      mut high_score: perform load_high_score(),
-      mut fc: 0,
-    }
-    # Per-mode state
-    perform seed_prng(0)
-
-    self.machine.transition(Mode.Title, self)
-  }
-
-  tick_title() -> Object {
-    self.session = update_session(self.session)
-    perform clear_screen(C1)
-
-    perform draw_title_text()
-    let plants = self.title.world.plants()
-    perform draw_background(self.title.world.vp, 0, plants, PipesOnScreen())
-    let player_draw_y = Player.START_Y + idle_shift(self.title.start_frame, self.session.fc)
-    perform draw_animation(self.title.rocci_anim, self.session.fc, Player.START_X, player_draw_y)
-
-    if (Canvas.key('escape')) {
-      return self.machine.transition(Mode.Final, self)
-    }
-    if (self.start_input()) {
-      return self.machine.transition(Mode.Game, self)
-    }
-    return {}
-  }
-
-  tick_game() -> Object {
-    self.session = update_session(self.session)
-    perform clear_screen(C1)
-
-    let fc = self.game.game_fc
-    let flap_inp_down = self.flap_input()
-    let flap_pressed = !self.game.last_flap && flap_inp_down
-    let flap: FlapData = if flap_pressed && self.game.rocci.flap_allowed(fc) {
-      self.game.rocci_anim = self.game.rocci_anim.reset(fc)
-      FlapData.Happened(fc)
-    } else {
-      FlapData.NoFlap
-    }
-
-    self.game.last_flap = flap_inp_down
-    perform play_sound("flap") if type_of(flap) == 'Happened'
-
-    let pipes = PipesOnScreen(self.game.world)
-    let last_pipe_scored_idx = pipes.last_passed(self.game.rocci)
-
-    self.game.rocci = self.game.rocci.update(flap)
-    self.game.ground_x = (self.game.ground_x - 1) % W
-
-    # Did we just score a point?
-    if last_pipe_scored_idx > self.game.last_pipe_scored_idx {
-      self.game.last_pipe_scored_idx = last_pipe_scored_idx
-      self.game.score = Math.min(last_pipe_scored_idx + 1, 255)
-      self.game.max_score = Math.max(self.game.score, self.game.max_score)
-      perform play_sound("point")
-    }
-
-    perform draw_background(
-      self.game.world.vp,
-      self.game.ground_x,
-      self.game.world.plants(),
-      pipes,
-    )
-
-    let hit = self.game.rocci.collided(pipes.compute_bboxes())
-    perform draw_animation(self.game.rocci_anim, fc, self.game.world.vp.to_vp(self.game.rocci.x), self.game.rocci.y.to_long())
-    perform draw_game_info(self.game.score)
-
-    self.game.world = self.game.world.shift_vp_right()
-    self.game.game_fc += 1
-
-    if (Canvas.key('escape')) {
-      return self.machine.transition(Mode.Final, self)
-    }
-    if (hit || self.game.rocci.y >= 134.0) {
-      return self.machine.transition(Mode.Over, self)
-    }
-    return {}
-  }
-
-  tick_over() -> Object {
-    self.session = update_session(self.session)
-    perform clear_screen(C1)
-
-    self.over.rocci = self.over.rocci.update_over()
-
-    let pipes = PipesOnScreen(self.over.world)
-
-    perform draw_background(
-      self.over.world.vp,
-      self.over.ground_x,
-      self.over.world.plants(),
-      pipes,
-    )
-    perform draw_animation(self.over.rocci_anim, self.session.fc, self.over.world.vp.to_vp(self.over.rocci.x), self.over.rocci.y.to_long())
-
-    perform draw_game_over_info(self.over.last_game_score, self.session.high_score)
-    perform draw_animation(self.over.hiscore_anim, self.session.fc, 64, 0) if self.over.new_high
-
-    if (Canvas.key('escape')) {
-      return self.machine.transition(Mode.Final, self)
-    }
-    if (self.restart_input()) {
-      return self.machine.transition(Mode.Title, self)
-    }
-    return {}
   }
 }
 
