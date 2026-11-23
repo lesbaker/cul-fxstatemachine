@@ -48,11 +48,13 @@ let PayloadTransaction = {
 
 class Machine<S> {
   _state: S
+  _payload: Object
   _on_enter: fn(S) -> S
 
   new(initial: S, on_enter: fn(S) -> S) {
     self._state = initial
     self._on_enter = on_enter
+    self._payload = {}
   }
 
   # Unconditionally go to another state

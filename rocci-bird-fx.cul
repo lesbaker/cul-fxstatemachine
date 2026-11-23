@@ -796,24 +796,19 @@ class App {
     self.input.update()
 
     handle {
-      let payload = {}
-      assign_all(payload, self)
-      payload.remove('machine')
       mut new_state = {}
 
       match self.machine._state {
-        m: Initial => new_state = tick(Mode.Initial, payload),
-        m: Title => new_state = tick(Mode.Title, payload),
-        m: Game => new_state = tick(Mode.Game, payload),
-        m: Over => new_state = tick(Mode.Over, payload),
+        m: Initial => new_state = tick(Mode.Initial, self.machine._payload),
+        m: Title => new_state = tick(Mode.Title, self.machine._payload),
+        m: Game => new_state = tick(Mode.Game, self.machine._payload),
+        m: Over => new_state = tick(Mode.Over, self.machine._payload),
         m: Final => Canvas.quit(),
       }
 
       if new_state != nil {
-        let modded_payload = self.machine.transition(new_state, payload)
-        assign_all(self, modded_payload)
-      } else {
-        assign_all(self, payload)
+        let modded_payload = self.machine.transition(new_state, self.machine._payload)
+        assign_all(self.machine._payload, modded_payload)
       }
     } with seed_prng(seed, resume) {
       Random.seed(seed)
