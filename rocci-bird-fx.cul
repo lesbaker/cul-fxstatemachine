@@ -642,7 +642,7 @@ fn on_enter(state: Mode.Over, payload: Object) {
   })
 }
 
-fn tick(state: Mode.Initial, this: Object) -> Object? {
+fn update(state: Mode.Initial, this: Object) -> Object? {
   # Session state, alive across restarts.
   this.session = {
     interactive: IO.stdin_is_terminal(),
@@ -655,7 +655,7 @@ fn tick(state: Mode.Initial, this: Object) -> Object? {
   Mode.Title
 }
 
-fn tick(state: Mode.Title, mut this: Object) -> Object? {
+fn update(state: Mode.Title, mut this: Object) -> Object? {
   let start_input = fn () {
     this.session.interactive ? perform get_input_action_held() : true
   }
@@ -677,7 +677,7 @@ fn tick(state: Mode.Title, mut this: Object) -> Object? {
   nil
 }
 
-fn tick(state: Mode.Game, this: Object) -> Object? {
+fn update(state: Mode.Game, this: Object) -> Object? {
   let flap_input = fn () {
     this.session.interactive
       ? perform get_input_action_held()
@@ -736,7 +736,7 @@ fn tick(state: Mode.Game, this: Object) -> Object? {
   nil
 }
 
-fn tick(state: Mode.Over, this: Object) -> Object? {
+fn update(state: Mode.Over, this: Object) -> Object? {
   let restart_input = fn () {
     return true if !this.session.interactive
     perform get_input_alt_action_held()
@@ -768,7 +768,7 @@ fn tick(state: Mode.Over, this: Object) -> Object? {
   nil
 }
 
-fn tick(state: Mode.Final, this: Object) {
+fn update(state: Mode.Final, this: Object) {
   Canvas.quit()
   nil
 }
@@ -801,15 +801,7 @@ class App {
     self.input.update()
 
     handle {
-      mut new_state = {}
-
-      match self.machine._state {
-        m: Initial => new_state = tick(Mode.Initial, self.machine._payload),
-        m: Title => new_state = tick(Mode.Title, self.machine._payload),
-        m: Game => new_state = tick(Mode.Game, self.machine._payload),
-        m: Over => new_state = tick(Mode.Over, self.machine._payload),
-        m: Final => new_state = tick(Mode.Final, self.machine._payload),
-      }
+      let new_state = update(self.machine._state, self.machine._payload)
 
       if new_state != nil {
         let modded_payload = self.machine.transition(new_state, self.machine._payload)
