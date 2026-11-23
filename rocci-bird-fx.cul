@@ -119,6 +119,8 @@ let PIPE_IVAL = 90  # Interval between pipe spawns
 let PIPE_WIDTH = 20
 
 effect fn seed_prng(seed: Long)
+effect fn get_input_action_held()
+effect fn get_input_alt_action_held()
 effect fn clear_screen(color: Long)
 effect fn play_sound(sound_name: String)
 effect fn draw_animation(anim: Anim, fc: Long, x: Long, y: Long)
@@ -654,14 +656,8 @@ fn tick(state: Mode.Initial, this: Object) -> Object? {
 }
 
 fn tick(state: Mode.Title, mut this: Object) -> Object? {
-  let action_held = fn () {
-    let m = Canvas.mouse()
-    this.input.down(Canvas.A) ||
-      this.input.down(Canvas.UP) ||
-      m.buttons & 1 != 0
-  }
   let start_input = fn () {
-    this.session.interactive ? action_held() : true
+    this.session.interactive ? perform get_input_action_held() : true
   }
   this.session = update_session(this.session)
   perform clear_screen(C1)
@@ -682,15 +678,9 @@ fn tick(state: Mode.Title, mut this: Object) -> Object? {
 }
 
 fn tick(state: Mode.Game, this: Object) -> Object? {
-  let action_held = fn () {
-    let m = Canvas.mouse()
-    this.input.down(Canvas.A) ||
-      this.input.down(Canvas.UP) ||
-      m.buttons & 1 != 0
-  }
   let flap_input = fn () {
     this.session.interactive
-      ? action_held()
+      ? perform get_input_action_held()
       : this.game.rocci.vel > 0.0 && this.game.rocci.y > 70.0
   }
   this.session = update_session(this.session)
@@ -749,10 +739,7 @@ fn tick(state: Mode.Game, this: Object) -> Object? {
 fn tick(state: Mode.Over, this: Object) -> Object? {
   let restart_input = fn () {
     return true if !this.session.interactive
-    let m = Canvas.mouse()
-    this.input.down(Canvas.B) ||
-      this.input.down(Canvas.RIGHT) ||
-      m.buttons & 2 != 0
+    perform get_input_alt_action_held()
   }
   this.session = update_session(this.session)
   perform clear_screen(C1)
@@ -789,12 +776,7 @@ class App {
     self.input = Canvas.Input()
   }
 
-  # The "flap / start" action: A, up, or left-click held this frame.
   action_held() {
-    let m = Canvas.mouse()
-    self.input.down(Canvas.A) ||
-      self.input.down(Canvas.UP) ||
-      m.buttons & 1 != 0
   }
   # In-game flap and title start read the action, with a simple autopilot when
   # input is not interactive so a CI / headless run still plays the game.
@@ -808,10 +790,6 @@ class App {
   }
   restart_input() {
     return true if !self.session.interactive
-    let m = Canvas.mouse()
-    self.input.down(Canvas.B) ||
-      self.input.down(Canvas.RIGHT) ||
-      m.buttons & 2 != 0
   }
 
   tick() {
@@ -841,6 +819,19 @@ class App {
       Random.seed(seed)
 
       resume()
+    } with get_input_action_held(resume) {
+      # The "flap / start" action: A, up, or left-click held this frame.
+      let m = Canvas.mouse()
+      let is_held = self.input.down(Canvas.A) ||
+        self.input.down(Canvas.UP) ||
+        m.buttons & 1 != 0
+      resume(is_held)
+    } with get_input_alt_action_held(resume) {
+      let m = Canvas.mouse()
+      let is_held = self.input.down(Canvas.B) ||
+        self.input.down(Canvas.RIGHT) ||
+        m.buttons & 2 != 0
+      resume(is_held)
     } with clear_screen(color, resume) {
       Canvas.clear(color)
 
