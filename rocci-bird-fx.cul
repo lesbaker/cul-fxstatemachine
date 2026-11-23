@@ -640,7 +640,7 @@ fn on_enter(state: Mode.Over, payload: Object) {
   })
 }
 
-fn tick_initial(this: Object) -> Object? {
+fn tick(state: Mode.Initial, this: Object) -> Object? {
   # Session state, alive across restarts.
   this.session = {
     interactive: IO.stdin_is_terminal(),
@@ -653,7 +653,7 @@ fn tick_initial(this: Object) -> Object? {
   Mode.Title
 }
 
-fn tick_title(mut this: Object) -> Object? {
+fn tick(state: Mode.Title, mut this: Object) -> Object? {
   let action_held = fn () {
     let m = Canvas.mouse()
     this.input.down(Canvas.A) ||
@@ -681,7 +681,7 @@ fn tick_title(mut this: Object) -> Object? {
   nil
 }
 
-fn tick_game(this: Object) -> Object? {
+fn tick(state: Mode.Game, this: Object) -> Object? {
   let action_held = fn () {
     let m = Canvas.mouse()
     this.input.down(Canvas.A) ||
@@ -746,7 +746,7 @@ fn tick_game(this: Object) -> Object? {
   nil
 }
 
-fn tick_over(this: Object) -> Object? {
+fn tick(state: Mode.Over, this: Object) -> Object? {
   let restart_input = fn () {
     return true if !this.session.interactive
     let m = Canvas.mouse()
@@ -824,10 +824,10 @@ class App {
       mut new_state = {}
 
       match self.machine._state {
-        m: Initial => new_state = tick_initial(payload),
-        m: Title => new_state = tick_title(payload),
-        m: Game => new_state = tick_game(payload),
-        m: Over => new_state = tick_over(payload),
+        m: Initial => new_state = tick(Mode.Initial, payload),
+        m: Title => new_state = tick(Mode.Title, payload),
+        m: Game => new_state = tick(Mode.Game, payload),
+        m: Over => new_state = tick(Mode.Over, payload),
         m: Final => Canvas.quit(),
       }
 
