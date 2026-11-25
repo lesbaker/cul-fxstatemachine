@@ -581,10 +581,8 @@ enum Mode {
   Final, # entering this state closes the app
 }
 
-let assign_all = fn (target: Object, source: Object) {
-  for k, v in source {
-    target[k] = v
-  }
+enum Event {
+  Tick,
 }
 
 fn on_enter(state: Mode.Title, payload: Object) {
@@ -642,7 +640,7 @@ fn on_enter(state: Mode.Over, payload: Object) {
   })
 }
 
-fn update(state: Mode.Initial, this: Object) -> Object? {
+fn update(state: Mode.Initial, event: Event.Tick, this: Object) -> Object? {
   # Session state, alive across restarts.
   this.session = {
     interactive: IO.stdin_is_terminal(),
@@ -655,7 +653,7 @@ fn update(state: Mode.Initial, this: Object) -> Object? {
   Mode.Title
 }
 
-fn update(state: Mode.Title, mut this: Object) -> Object? {
+fn update(state: Mode.Title, event: Event.Tick, this: Object) -> Object? {
   let start_input = fn () {
     this.session.interactive ? perform get_input_action_held() : true
   }
@@ -677,7 +675,7 @@ fn update(state: Mode.Title, mut this: Object) -> Object? {
   nil
 }
 
-fn update(state: Mode.Game, this: Object) -> Object? {
+fn update(state: Mode.Game, event: Event.Tick, this: Object) -> Object? {
   let flap_input = fn () {
     this.session.interactive
       ? perform get_input_action_held()
@@ -736,7 +734,7 @@ fn update(state: Mode.Game, this: Object) -> Object? {
   nil
 }
 
-fn update(state: Mode.Over, this: Object) -> Object? {
+fn update(state: Mode.Over, event: Event.Tick, this: Object) -> Object? {
   let restart_input = fn () {
     return true if !this.session.interactive
     perform get_input_alt_action_held()
@@ -768,7 +766,7 @@ fn update(state: Mode.Over, this: Object) -> Object? {
   nil
 }
 
-fn update(state: Mode.Final, this: Object) {
+fn update(state: Mode.Final, event: Event.Tick, this: Object) {
   Canvas.quit()
   nil
 }
@@ -777,7 +775,7 @@ class App {
   machine: Machine
 
   new() {
-    self.machine = fsm.Machine(Mode.Initial, on_enter: on_enter)
+    self.machine = fsm.Machine(Mode.Initial, update: update, on_enter: on_enter)
     self.input = Canvas.Input()
   }
 
@@ -801,12 +799,7 @@ class App {
     self.input.update()
 
     handle {
-      let new_state = update(self.machine._state, self.machine._payload)
-
-      if new_state != nil {
-        let modded_payload = self.machine.transition(new_state, self.machine._payload)
-        assign_all(self.machine._payload, modded_payload)
-      }
+      self.machine.fire(Event.Tick)
     } with seed_prng(seed, resume) {
       Random.seed(seed)
 

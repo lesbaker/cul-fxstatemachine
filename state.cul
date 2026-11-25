@@ -49,25 +49,38 @@ let PayloadTransaction = {
 class Machine<S> {
   _state: S
   _payload: Object
+  _update: Function
   _on_enter: fn(S) -> S
 
-  new(initial: S, on_enter: fn(S) -> S) {
+  new(initial: S, update: Function, on_enter: fn(S) -> S) {
     self._state = initial
+    self._update = update
     self._on_enter = on_enter
     self._payload = {}
+  }
+
+  call_handler(handler: Function, to_state: Any, payload: Object) -> Object {
+    try {
+      let pay_trans = PayloadTransaction.new(payload)
+      handler(to_state, payload: pay_trans)
+      pay_trans.commit()
+    } catch {kind: 'DispatchError'} {
+      return {}  # Missing handler is not an error
+    }
+  }
+
+  fire(event: Any) {
+    let new_state = self._update(self._state, event, self._payload)
+
+    if new_state != nil {
+      self._payload = self.transition(new_state, self._payload)
+    }
   }
 
   # Unconditionally go to another state
   transition(to_state: S, payload: Object) -> Object {
     self._state = to_state
-
-    try {
-      let pay_trans = PayloadTransaction.new(payload)
-      self._on_enter(to_state, payload: pay_trans)
-      pay_trans.commit()
-    } catch {kind: 'DispatchError'} {
-      return {}  # Missing handler is not an error
-    }
+    self.call_handler(self._on_enter, to_state, payload)
   }
 }
 
